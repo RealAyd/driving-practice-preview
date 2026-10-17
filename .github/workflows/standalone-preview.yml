@@ -1,0 +1,74 @@
+name: Standalone iPhone preview
+on:
+  push:
+    branches: [rebuild/3d-judgement-simulator, main]
+    paths:
+      - src/**
+      - sim/**
+      - content/**
+      - public/**
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - .github/workflows/standalone-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: standalone-preview
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'RealAyd/driving-practice-preview' || github.ref == 'refs/heads/rebuild/3d-judgement-simulator'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RealAyd/driving-simulator-vr
+          ref: rebuild/3d-judgement-simulator
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Stamp preview provenance and exclude custom domains
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const info={repository:'RealAyd/driving-simulator-vr',branch:'rebuild/3d-judgement-simulator',commit,builtAt:new Date().toISOString()};
+          fs.writeFileSync('dist-sim/build-info.json',JSON.stringify(info,null,2));
+          fs.rmSync('dist-sim/CNAME',{force:true});
+          fs.writeFileSync('dist-sim/.nojekyll','');
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-iphone-preview
+          path: dist-sim
+          include-hidden-files: true
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v3
+        if: github.repository == 'RealAyd/driving-practice-preview'
+        with:
+          path: dist-sim
+  deploy:
+    if: github.repository == 'RealAyd/driving-practice-preview'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy standalone preview
+        id: deployment
+        uses: actions/deploy-pages@v4
