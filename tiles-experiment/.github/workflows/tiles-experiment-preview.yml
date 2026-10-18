@@ -1,0 +1,85 @@
+name: Tiles experiment preview
+# Isolated HTTPS preview of experiment/babylon-photorealistic-tiles.
+# Runs (and deploys) only in RealAyd/driving-practice-tiles-experiment, a separate Pages site:
+# it never touches production (vr.drivingpractice.live) or the existing staging preview.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tiles-experiment-preview
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'RealAyd/driving-practice-tiles-experiment'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RealAyd/driving-simulator-vr
+          ref: experiment/babylon-photorealistic-tiles
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The browser key: a GOOGLE_MAPS_BROWSER_KEY secret in this preview repository if set,
+      # otherwise the existing key of the legacy page (main:index.html). It is masked in logs
+      # and never written to the repository; it is in the built JavaScript, as for any browser key.
+      - name: Provide the Map Tiles API browser key
+        env:
+          SECRET_KEY: ${{ secrets.GOOGLE_MAPS_BROWSER_KEY }}
+        shell: bash
+        run: |
+          key="$SECRET_KEY"
+          if [ -z "$key" ]; then
+            key=$(curl -fsSL https://raw.githubusercontent.com/RealAyd/driving-simulator-vr/main/index.html | sed -n -E 's/.*GOOGLE_MAPS_API_KEY = "([^"]+)".*/\1/p' | head -1)
+            source=legacy
+          else
+            source=secret
+          fi
+          if [ -z "$key" ]; then echo "::error::No browser key found"; exit 1; fi
+          echo "::add-mask::$key"
+          echo "VITE_GOOGLE_MAPS_BROWSER_KEY=$key" >> "$GITHUB_ENV"
+          echo "Key source: $source"
+      - run: npm run build
+        env:
+          PREVIEW_SOURCE_BRANCH: experiment/babylon-photorealistic-tiles
+      - name: Stamp provenance, drop source maps and custom domain
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const info={repository:'RealAyd/driving-simulator-vr',branch:'experiment/babylon-photorealistic-tiles',commit,builtAt:new Date().toISOString(),scenery:['constructed','tiles','hybrid']};
+          fs.writeFileSync('dist-sim/build-info.json',JSON.stringify(info,null,2));
+          fs.rmSync('dist-sim/CNAME',{force:true});
+          for(const f of fs.readdirSync('dist-sim/assets'))if(f.endsWith('.map'))fs.rmSync(`dist-sim/assets/${f}`);
+          fs.writeFileSync('dist-sim/.nojekyll','');
+          NODE
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-sim
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy tiles experiment preview
+        id: deployment
+        uses: actions/deploy-pages@v4
