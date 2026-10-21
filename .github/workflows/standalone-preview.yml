@@ -12,6 +12,12 @@ on:
       - tsconfig.json
       - .github/workflows/standalone-preview.yml
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Simulator source branch or commit'
+        required: true
+        default: 'rebuild/3d-judgement-simulator'
+        type: string
 
 permissions:
   contents: read
@@ -28,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RealAyd/driving-simulator-vr
-          ref: rebuild/3d-judgement-simulator
+          ref: ${{ inputs.source_ref || 'rebuild/3d-judgement-simulator' }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -38,12 +44,14 @@ jobs:
       - run: npm run build
       - name: Stamp preview provenance and exclude custom domains
         shell: bash
+        env:
+          PREVIEW_SOURCE_REF: ${{ inputs.source_ref || 'rebuild/3d-judgement-simulator' }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
           const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-          const info={repository:'RealAyd/driving-simulator-vr',branch:'rebuild/3d-judgement-simulator',commit,builtAt:new Date().toISOString()};
+          const info={repository:'RealAyd/driving-simulator-vr',branch:process.env.PREVIEW_SOURCE_REF,commit,builtAt:new Date().toISOString()};
           fs.writeFileSync('dist-sim/build-info.json',JSON.stringify(info,null,2));
           fs.rmSync('dist-sim/CNAME',{force:true});
           fs.writeFileSync('dist-sim/.nojekyll','');
