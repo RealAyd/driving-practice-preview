@@ -34,3 +34,33 @@ Deployment stopped before Hostless app/database-user mutation with exact error:
 `STRIPE_SECRET_KEY must be a Stripe TEST key`. The supplied value did not match
 the supported sk_test_ or rk_test_ format; its value was not displayed. Owner
 must save the correct test key. App creation remains pending.
+
+## Updated Stripe key accepted
+
+Run https://github.com/RealAyd/driving-practice-preview/actions/runs/40036203680
+passed test-key format validation, provisioned the scoped dp_sim_app Mongo user
+for dp_sim_staging, verified its connection, and created app dp-sim-staging.
+The container image built successfully; deployment/HTTP checks are pending.
+Hostless deployment id: 6adbe4fe9600443a5d3b1fff.
+Release commit: 4d356fcee6f93133adbd8fffb2c8fd6b1eefceaa.
+Added staging.drivingpractice.live as a custom domain; DNS status Pending.
+No Namecheap records were changed.
+
+Owner supplied the following test links (not yet wired into the deployed packs):
+- Starter Pass, GBP2.99: https://buy.stripe.com/test_3cI8wHeQWfyc6Fr4Qe0VO02
+  One lesson + one mock test + one free drive; backend needs per-mode allowances.
+- VR 5, GBP9.99: https://buy.stripe.com/test_8x2fZ9106adS5Bn0zY0VO03
+- VR 15, GBP24.99: https://buy.stripe.com/test_9B628jaAG5XC7Jv0zY0VO04
+- VR 35, GBP49.99: https://buy.stripe.com/test_4gM4gr5gmbhWe7T0zY0VO05
+All return to https://staging.drivingpractice.live/?checkout=done. Completing
+that return journey requires the custom domain to be configured and verified.
+The earlier placeholder packs must be replaced before payment testing.
+
+### Deployment verified
+
+The run completed successfully. https://dp-sim-staging.hostless.app/healthz
+returns HTTP 200 with ok=true. access.json reports gate=true; /api/config reports
+gate=true and devCheckout=false. build-info.json matches source commit
+d4da039a97a30ef097df90694c2cc505cdb55d12. Runtime logs confirm API startup on port
+8000 in Stripe test mode. This verifies startup and configuration, not payment
+crediting, email delivery, browser operation or the Starter entitlement model.
