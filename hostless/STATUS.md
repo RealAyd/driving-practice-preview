@@ -23,3 +23,14 @@
 Next: correct the Resend secret name, rerun workflow, resolve any webhook scope
 blocker, verify hosted health and scoped database access, then configure DNS,
 Resend domain and Payment Links and test account/payment flows.
+
+## Resend mapping resolved
+
+GitHub secret RESEND is now mapped to runtime RESEND_API_KEY. Run
+https://github.com/RealAyd/driving-practice-preview/actions/runs/40035247439
+passed secret checks, build/tests, packaging and release-branch publication.
+All four runtime/deploy secret names are available, including STRIPE_WEBHOOK_SECRET.
+Deployment stopped before Hostless app/database-user mutation with exact error:
+`STRIPE_SECRET_KEY must be a Stripe TEST key`. The supplied value did not match
+the supported sk_test_ or rk_test_ format; its value was not displayed. Owner
+must save the correct test key. App creation remains pending.

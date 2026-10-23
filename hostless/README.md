@@ -15,7 +15,7 @@ Required GitHub environment secrets:
 - HOSTLESS_TOKEN: apps read/write, deployments read/write, databases read.
 - STRIPE_SECRET_KEY: TEST mode; restricted read access to Payment Links,
   Checkout Sessions, Prices, Products, Charges, Refunds, Disputes.
-- RESEND_API_KEY: sending permission for the verified sender domain.
+- RESEND: existing GitHub secret, mapped to runtime RESEND_API_KEY; sending permission for the verified sender domain.
 - STRIPE_WEBHOOK_SECRET: signing secret of the new staging endpoint. If absent
   on first deploy, the workflow attempts to create a TEST endpoint, requiring
   webhook list/create permissions. Existing matching endpoints are not replaced.
