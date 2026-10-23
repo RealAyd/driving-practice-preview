@@ -1,0 +1,146 @@
+import { randomUUID } from 'node:crypto';
+import { MongoClient, MongoServerError } from 'mongodb';
+const out = (d) => {
+    if (!d)
+        return null;
+    const { _id, ...rest } = d;
+    return { ...rest, id: _id };
+};
+const duplicate = (e) => e instanceof MongoServerError && e.code === 11000;
+/** The hosted store: one database (e.g. dp_sim_staging), its own collections and indexes. */
+export class MongoStore {
+    db;
+    constructor(db) {
+        this.db = db;
+    }
+    static async connect(uri) {
+        const client = new MongoClient(uri);
+        await client.connect();
+        const store = new MongoStore(client.db());
+        await store.indexes();
+        return store;
+    }
+    get accounts() { return this.db.collection('accounts'); }
+    get entries() { return this.db.collection('ledger_entries'); }
+    get drives() { return this.db.collection('drives'); }
+    get codes() { return this.db.collection('login_codes'); }
+    get rates() { return this.db.collection('rate_limits'); }
+    get flagged() { return this.db.collection('flags'); }
+    async indexes() {
+        // Sparse: an Apple account without an email, or accounts without a provider, do not collide.
+        await this.accounts.createIndex({ email: 1 }, { unique: true, sparse: true });
+        await this.accounts.createIndex({ emailKey: 1 });
+        await this.accounts.createIndex({ googleSub: 1 }, { unique: true, sparse: true });
+        await this.accounts.createIndex({ appleSub: 1 }, { unique: true, sparse: true });
+        await this.accounts.createIndex({ referralCode: 1 }, { unique: true });
+        await this.accounts.createIndex({ referredBy: 1 }, { sparse: true });
+        await this.entries.createIndex({ idempotencyKey: 1 }, { unique: true });
+        await this.entries.createIndex({ accountId: 1, createdAt: 1 });
+        await this.entries.createIndex({ 'stripe.paymentIntent': 1 }, { sparse: true });
+        await this.drives.createIndex({ accountId: 1, startedAt: -1 });
+        await this.codes.createIndex({ tokenHash: 1 });
+        await this.codes.createIndex({ email: 1, expiresAt: -1 });
+        // Expired sign-in codes and rate-limit windows are removed by the database.
+        await this.codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 24 * 3600 });
+        await this.rates.createIndex({ until: 1 }, { expireAfterSeconds: 0 });
+    }
+    async findAccount(q) {
+        const [k, v] = Object.entries(q)[0];
+        return out(await this.accounts.findOne(k === 'id' ? { _id: v } : { [k]: v }));
+    }
+    async createAccount(a) {
+        const doc = { ...a, _id: randomUUID(), balance: 0, createdAt: new Date() };
+        // Absent (not null) fields keep sparse unique indexes sparse.
+        if (doc.email === null)
+            delete doc.email;
+        try {
+            await this.accounts.insertOne(doc);
+        }
+        catch (e) {
+            if (duplicate(e))
+                return null;
+            throw e;
+        }
+        return out(doc);
+    }
+    async updateAccount(id, set) {
+        await this.accounts.updateOne({ _id: id }, { $set: set });
+    }
+    async countReferred(referrerId) { return this.accounts.countDocuments({ referredBy: referrerId }); }
+    async appendLedger(e, opts = {}) {
+        const doc = { ...e, _id: randomUUID(), createdAt: new Date() };
+        if (opts.requireBalance && e.sessionsDelta < 0) {
+            // Take the sessions first (only if there are enough), then record why; undone if this was recorded already.
+            const taken = await this.accounts.updateOne({ _id: e.accountId, balance: { $gte: -e.sessionsDelta } }, { $inc: { balance: e.sessionsDelta } });
+            if (taken.modifiedCount === 0)
+                return 'insufficient';
+            try {
+                await this.entries.insertOne(doc);
+            }
+            catch (err) {
+                await this.accounts.updateOne({ _id: e.accountId }, { $inc: { balance: -e.sessionsDelta } });
+                if (duplicate(err))
+                    return 'duplicate';
+                throw err;
+            }
+            return 'ok';
+        }
+        try {
+            await this.entries.insertOne(doc);
+        }
+        catch (err) {
+            if (duplicate(err))
+                return 'duplicate';
+            throw err;
+        }
+        await this.accounts.updateOne({ _id: e.accountId }, { $inc: { balance: e.sessionsDelta } });
+        return 'ok';
+    }
+    async ledger(q) {
+        const filter = {};
+        if (q.accountId)
+            filter['accountId'] = q.accountId;
+        if (q.paymentIntent)
+            filter['stripe.paymentIntent'] = q.paymentIntent;
+        if (q.type)
+            filter['type'] = q.type;
+        return (await this.entries.find(filter).sort({ createdAt: 1 }).toArray()).map(d => out(d));
+    }
+    async createDrive(d) {
+        const doc = { ...d, _id: randomUUID() };
+        await this.drives.insertOne(doc);
+        return out(doc);
+    }
+    async getDrive(id) { return out(await this.drives.findOne({ _id: id })); }
+    async updateDrive(id, set) { await this.drives.updateOne({ _id: id }, { $set: set }); }
+    async countDrives(q) {
+        return this.drives.countDocuments({ accountId: q.accountId, startedAt: { $gte: q.since }, ...(q.refunded === undefined ? {} : q.refunded ? { refunded: true } : { refunded: { $ne: true } }) });
+    }
+    async saveLoginCode(c) {
+        const doc = { ...c, _id: randomUUID() };
+        await this.codes.insertOne(doc);
+        return out(doc);
+    }
+    async findLoginCode(q) {
+        return out(await this.codes.findOne(q, { sort: { expiresAt: -1 } }));
+    }
+    async updateLoginCode(id, set) { await this.codes.updateOne({ _id: id }, { $set: set }); }
+    async rateHit(key, windowMs, max) {
+        const now = new Date();
+        const r = await this.rates.findOneAndUpdate({ _id: key, until: { $gt: now } }, { $inc: { n: 1 } }, { returnDocument: 'after' });
+        if (r)
+            return r.n <= max;
+        try {
+            await this.rates.updateOne({ _id: key }, { $set: { until: new Date(now.getTime() + windowMs), n: 1 } }, { upsert: true });
+        }
+        catch (e) {
+            if (!duplicate(e))
+                throw e;
+        }
+        return true;
+    }
+    async flag(kind, data) {
+        await this.flagged.insertOne({ _id: randomUUID(), kind, data, createdAt: new Date() });
+    }
+    async flags() { return (await this.flagged.find().sort({ createdAt: -1 }).limit(200).toArray()).map(d => out(d)); }
+}

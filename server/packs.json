@@ -1,0 +1,8 @@
+{
+  "note": "Session packs sold through Stripe Payment Links. `links.test` / `links.live`: the buy.stripe.com addresses (public). The webhook credits the pack whose link was paid; a link's metadata `sessions` is used if it is not listed here.",
+  "packs": [
+    {"id": "starter", "label": "Starter", "price": "£2.99", "sessions": 3, "starter": true, "links": {"test": "", "live": ""}},
+    {"id": "pack-10", "label": "10 sessions", "price": "£7.99", "sessions": 10, "links": {"test": "", "live": ""}},
+    {"id": "pack-25", "label": "25 sessions", "price": "£14.99", "sessions": 25, "links": {"test": "", "live": ""}}
+  ]
+}
