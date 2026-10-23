@@ -11,4 +11,5 @@ if(!text.includes('withStatic(')){
   fs.writeFileSync(entry,text);
 }
 fs.copyFileSync('hostless/static.ts',`${source}/server/src/static.ts`);
+fs.copyFileSync('hostless/static.test.ts',`${source}/server/test/static.test.ts`);
 fs.writeFileSync('source-provenance.json',JSON.stringify({repository:'RealAyd/driving-simulator-vr',ref:process.env.SOURCE_REF,commit,builtAt:new Date().toISOString()},null,2));
