@@ -1,0 +1,97 @@
+name: Hostless simulator staging
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Simulator branch or commit to build
+        required: true
+        default: assets/batch-a
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: hostless-simulator-staging
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'RealAyd/driving-practice-preview' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: RealAyd/driving-simulator-vr
+          ref: ${{ inputs.source_ref }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Check required secret names
+        env:
+          HOSTLESS_TOKEN: ${{ secrets.HOSTLESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          node --input-type=module <<'NODE'
+          const missing=['HOSTLESS_TOKEN','STRIPE_SECRET_KEY','RESEND_API_KEY'].filter(n=>!process.env[n]);
+          if(missing.length){console.error('Missing environment secrets: '+missing.join(', '));process.exit(1)}
+          console.log('Required secret names are configured');
+          NODE
+      - name: Prepare same-origin hosting
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: node hostless/prepare.mjs
+      - name: Build and test source
+        working-directory: source
+        env:
+          PREVIEW_SOURCE_BRANCH: ${{ inputs.source_ref }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm run build:server
+          npx vitest run server/test
+      - name: Package staging release with access gate
+        run: |
+          mkdir -p .release/server
+          cp source/package.json source/package-lock.json .release/
+          cp -R source/dist-sim .release/dist-sim
+          cp -R source/server/dist .release/server/dist
+          cp source/server/packs.json .release/server/packs.json
+          cp hostless/Dockerfile .release/Dockerfile
+          cp hostless/hostless.yaml .release/hostless.yaml
+          cp source-provenance.json .release/dist-sim/build-info.json
+          rm -f .release/dist-sim/CNAME
+          node --input-type=module -e "import fs from 'node:fs';fs.writeFileSync('.release/dist-sim/access.json',JSON.stringify({gate:true}))"
+      - name: Publish isolated release branch
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -C .release init -b hostless-staging-release
+          git -C .release config user.name 'github-actions[bot]'
+          git -C .release config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C .release remote add origin https://github.com/RealAyd/driving-practice-preview.git
+          gh auth setup-git
+          if git -C .release ls-remote --exit-code origin refs/heads/hostless-staging-release >/dev/null 2>&1; then
+            git -C .release fetch --depth=1 origin hostless-staging-release
+            git -C .release reset --soft FETCH_HEAD
+          fi
+          git -C .release add -A
+          git -C .release commit --allow-empty -m 'Build simulator Hostless staging release'
+          git -C .release push origin HEAD:hostless-staging-release
+          echo "commit=$(git -C .release rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Configure and deploy isolated Hostless staging
+        env:
+          HOSTLESS_TOKEN: ${{ secrets.HOSTLESS_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          APPLE_SERVICES_ID: ${{ vars.APPLE_SERVICES_ID }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: node hostless/deploy.mjs
