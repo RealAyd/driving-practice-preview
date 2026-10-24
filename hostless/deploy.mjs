@@ -6,7 +6,17 @@ const {MongoClient}=require('mongodb');
 const projectId='6ac5392e4b1c266c8f3f9f1b';
 const app='dp-sim-staging',database='dp-sim-staging',logicalDb='dp_sim_staging';
 const origin=`https://${app}.hostless.app`;
-const webhookUrl=`${origin}/api/stripe/webhook`;
+// The address people use. APP_BASE_URL (sign-in links, the allowed origin for posts) is set to it once it serves this
+// app over HTTPS; until its DNS resolves, the platform address keeps sign-in working.
+const customOrigin='https://staging.drivingpractice.live';
+async function publicOrigin(){
+  try{
+    const r=await fetch(customOrigin+'/healthz',{signal:AbortSignal.timeout(10000)});
+    if(r.ok&&(await r.json()).ok===true)return customOrigin;
+  }catch{}
+  console.log(`${customOrigin} is not serving this app yet (DNS or certificate pending): APP_BASE_URL stays ${origin}`);
+  return origin;
+}
 const events=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','charge.refunded','charge.dispute.created'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -31,6 +41,8 @@ async function main(){
   const vars=Array.isArray(current)?current:current.variables??[];
   const names=new Set(vars.map(v=>v.name));
   const updates=new Map();
+  const appBaseUrl=await publicOrigin();
+  const webhookUrl=`${appBaseUrl}/api/stripe/webhook`;
   let webhookSecret=process.env.STRIPE_WEBHOOK_SECRET;
   if(!webhookSecret&&!names.has('STRIPE_WEBHOOK_SECRET')){
     const endpoints=await stripe('/webhook_endpoints?limit=100');
@@ -78,7 +90,7 @@ async function main(){
   }
   if(!names.has('SESSION_SECRET'))updates.set('SESSION_SECRET',randomBytes(48).toString('base64'));
   for(const key of ['STRIPE_SECRET_KEY','RESEND_API_KEY','GOOGLE_CLIENT_ID','APPLE_SERVICES_ID'])if(process.env[key])updates.set(key,process.env[key]);
-  for(const [key,value] of Object.entries({NODE_ENV:'production',APP_BASE_URL:origin,EMAIL_FROM:'Driving Practice <support@drivingpractice.live>',EMAIL_REPLY_TO:'support.drivingpractice@gmail.com',ADMIN_EMAILS:'dosumuaybamo1@gmail.com'}))updates.set(key,value);
+  for(const [key,value] of Object.entries({NODE_ENV:'production',APP_BASE_URL:appBaseUrl,EMAIL_FROM:'Driving Practice <support@drivingpractice.live>',EMAIL_REPLY_TO:'support.drivingpractice@gmail.com',ADMIN_EMAILS:'dosumuaybamo1@gmail.com'}))updates.set(key,value);
   const environmentVariables=[...vars.filter(v=>!updates.has(v.name)).map(v=>({name:v.name,keepExistingValue:true})),...[...updates].map(([name,value])=>({name,value}))];
   if(!existing){
     await hostless('/apps','POST',{name:app,projectId,gitPlatform:'Github',gitRepo:'RealAyd/driving-practice-preview',gitBranch:'hostless-staging-release',gitCommitHash:process.env.RELEASE_COMMIT,containerPort:8000,dockerFilePath:'Dockerfile',buildSystem:'docker',autoDeployOnPush:false,environmentVariables});
@@ -87,7 +99,7 @@ async function main(){
     await hostless(`/apps/${app}/deployments/new`,'POST',{gitCommitHash:process.env.RELEASE_COMMIT});
   }
   console.log('Configured environment variable names: '+environmentVariables.map(v=>v.name).sort().join(', '));
-  console.log(`Staging deployment requested: ${origin}`);
+  console.log(`Staging deployment requested: ${origin} (APP_BASE_URL ${appBaseUrl})`);
   for(let i=0;i<90;i++){
     try{
       const info=await fetch(origin+'/build-info.json',{signal:AbortSignal.timeout(10000)});
