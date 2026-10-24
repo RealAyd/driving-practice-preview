@@ -105,9 +105,9 @@ async function main(){
   if(!existing){
     await hostless('/apps','POST',{name:app,projectId,gitPlatform:'Github',gitRepo:'RealAyd/driving-practice-preview',gitBranch:'hostless-staging-release',gitCommitHash:process.env.RELEASE_COMMIT,containerPort:8000,dockerFilePath:'Dockerfile',buildSystem:'docker',autoDeployOnPush:false,environmentVariables});
   }else{
-    // (The app's settings take no commit: the deployment below names the release commit.)
-    await hostless(`/apps/${app}?deploy=false`,'PATCH',{gitBranch:'hostless-staging-release',autoDeployOnPush:false,environmentVariables});
-    await hostless(`/apps/${app}/deployments/new`,'POST',{gitCommitHash:process.env.RELEASE_COMMIT});
+    // Saving the settings with deployment on releases the head of the release branch: the commit this run just pushed
+    // (runs are serialized). The check below confirms the served build is this source commit.
+    await hostless(`/apps/${app}?deploy=true`,'PATCH',{gitBranch:'hostless-staging-release',autoDeployOnPush:false,environmentVariables});
   }
   console.log('Configured environment variable names: '+environmentVariables.map(v=>v.name).sort().join(', '));
   console.log(`Staging deployment requested: ${origin} (APP_BASE_URL ${appBaseUrl})`);
