@@ -1,13 +1,13 @@
 {
-  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive. `allowances`: drives of one kind only (lesson, test = mock test, free = free drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; `live` stays empty until live payments are approved.",
+  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive. `allowances`: drives of one kind only (lesson, test = mock test, free = free drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; which set is used follows the Stripe key (test or live), so live links take payments only on a server with a live key.",
   "packs": [
     {"id": "starter", "label": "Starter Pass", "price": "£2.99", "description": "1 lesson, 1 mock test and 1 free drive", "sessions": 0, "allowances": {"lesson": 1, "test": 1, "free": 1}, "starter": true,
-     "links": {"test": "https://buy.stripe.com/test_3cI8wHeQWfyc6Fr4Qe0VO02", "live": ""}},
+     "links": {"test": "https://buy.stripe.com/test_3cI8wHeQWfyc6Fr4Qe0VO02", "live": "https://buy.stripe.com/4gM4gr5gmbhWe7T0zY0VO05"}},
     {"id": "vr-5", "label": "VR 5", "price": "£9.99", "description": "5 sessions", "sessions": 5,
-     "links": {"test": "https://buy.stripe.com/test_8x2fZ9106adS5Bn0zY0VO03", "live": ""}},
+     "links": {"test": "https://buy.stripe.com/test_8x2fZ9106adS5Bn0zY0VO03", "live": "https://buy.stripe.com/28E5kv9wC4Tygg1aay0VO06"}},
     {"id": "vr-15", "label": "VR 15", "price": "£24.99", "description": "15 sessions", "sessions": 15,
-     "links": {"test": "https://buy.stripe.com/test_9B628jaAG5XC7Jv0zY0VO04", "live": ""}},
+     "links": {"test": "https://buy.stripe.com/test_9B628jaAG5XC7Jv0zY0VO04", "live": "https://buy.stripe.com/4gM8wH5gm1Hm6Fr96u0VO07"}},
     {"id": "vr-35", "label": "VR 35", "price": "£49.99", "description": "35 sessions", "sessions": 35,
-     "links": {"test": "https://buy.stripe.com/test_4gM4gr5gmbhWe7T0zY0VO05", "live": ""}}
+     "links": {"test": "https://buy.stripe.com/test_4gM4gr5gmbhWe7T0zY0VO05", "live": "https://buy.stripe.com/7sY5kvfV071Gd3P3Ma0VO08"}}
   ]
 }
