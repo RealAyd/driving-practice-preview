@@ -1,12 +1,19 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Admin } from './admin.js';
 /** Signed-in cookie: account id and expiry, signed with SESSION_SECRET. HttpOnly; Secure when served over HTTPS. */
 const COOKIE = 'dp_session', COOKIE_DAYS = 60;
+/** The admin hub needs a sign-in from the last this many hours (the learner's cookie lasts COOKIE_DAYS). */
+export const ADMIN_SIGNIN_HOURS = 12;
 const b64 = (s) => Buffer.from(s).toString('base64url');
-function sign(secret, accountId, now = Date.now()) {
+export function sign(secret, accountId, now = Date.now()) {
     const body = b64(JSON.stringify({ a: accountId, e: now + COOKIE_DAYS * 86400_000 }));
     return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
 }
 export function readSession(secret, value, now = Date.now()) {
+    return readSessionInfo(secret, value, now)?.accountId ?? null;
+}
+/** The signed-in account and when that sign-in happened. */
+function readSessionInfo(secret, value, now = Date.now()) {
     if (!value)
         return null;
     const [body, mac] = value.split('.');
@@ -17,7 +24,7 @@ export function readSession(secret, value, now = Date.now()) {
         return null;
     try {
         const { a, e } = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-        return typeof a === 'string' && e > now ? a : null;
+        return typeof a === 'string' && typeof e === 'number' && e > now ? { accountId: a, signedInAt: e - COOKIE_DAYS * 86400_000 } : null;
     }
     catch {
         return null;
@@ -61,6 +68,7 @@ const str = (v, max = 500) => typeof v === 'string' && v.length <= max ? v : nul
 /** The request handler: everything under /api, plus /healthz. */
 export function handler(service, outbox) {
     const { config } = service;
+    const admin = new Admin(config, service.store);
     const secure = config.appBaseUrl.startsWith('https://');
     const origin = new URL(config.appBaseUrl).origin;
     const setSession = (res, accountId) => res.setHeader('Set-Cookie', `${COOKIE}=${accountId ? sign(config.sessionSecret, accountId) : ''}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${accountId ? COOKIE_DAYS * 86400 : 0}`);
@@ -81,7 +89,8 @@ export function handler(service, outbox) {
             const crossSite = method === 'POST' && req.headers.origin && req.headers.origin !== origin && path !== '/api/stripe/webhook' && path !== '/api/auth/apple/callback';
             if (crossSite)
                 throw new HttpError(403, 'cross-site');
-            const accountId = readSession(config.sessionSecret, cookies(req)[COOKIE]);
+            const session = readSessionInfo(config.sessionSecret, cookies(req)[COOKIE]);
+            const accountId = session?.accountId ?? null;
             const signedIn = () => { if (!accountId)
                 throw new HttpError(401, 'sign-in'); return accountId; };
             if (method === 'GET' && path === '/api/config')
@@ -160,6 +169,52 @@ export function handler(service, outbox) {
                 const raw = await body(req, 1_000_000);
                 const r = await service.stripeWebhook(raw, String(req.headers['stripe-signature'] ?? ''));
                 return send(res, r === 'ok' ? 200 : 400, { received: r === 'ok' });
+            }
+            // ---- The admin hub (/admin.html): ADMIN_EMAILS only, signed in within the last ADMIN_SIGNIN_HOURS ----
+            if (path.startsWith('/api/admin/')) {
+                const by = await admin.adminEmail(signedIn());
+                if (!by)
+                    throw new HttpError(403, 'not-admin');
+                if (Date.now() - session.signedInAt > ADMIN_SIGNIN_HOURS * 3600_000)
+                    throw new HttpError(401, 'reauth');
+                // Changes come only from this site's own page (a missing Origin is refused too).
+                if (method === 'POST' && req.headers.origin !== origin)
+                    throw new HttpError(403, 'cross-site');
+                res.setHeader('X-Robots-Tag', 'noindex');
+                if (method === 'GET' && path === '/api/admin/overview')
+                    return send(res, 200, await admin.overview());
+                if (method === 'GET' && path === '/api/admin/customers')
+                    return send(res, 200, await admin.customers(url.searchParams.get('q') ?? ''));
+                const customer = /^\/api\/admin\/customers\/([\w-]{8,64})(\/adjust)?$/.exec(path);
+                if (customer && method === 'GET' && !customer[2]) {
+                    const c = await admin.customer(customer[1]);
+                    return c ? send(res, 200, c) : send(res, 404, { error: 'not-found' });
+                }
+                if (customer && method === 'POST' && customer[2]) {
+                    const b = await json(req);
+                    const r = await admin.adjust(by, customer[1], { sessions: b['sessions'], pot: b['pot'], reason: b['reason'], requestId: b['requestId'] });
+                    if ('error' in r)
+                        return send(res, r.error === 'not-found' ? 404 : r.error === 'insufficient' ? 409 : 400, r);
+                    console.log(`Admin adjustment: ${r.result} ${String(b['sessions'])} on ${customer[1]}`);
+                    return send(res, 200, r);
+                }
+                if (method === 'GET' && path === '/api/admin/payments') {
+                    const p = await admin.payments(url.searchParams.get('from'), url.searchParams.get('to'));
+                    if (url.searchParams.get('format') !== 'csv')
+                        return send(res, 200, p);
+                    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="payments-${p.since.slice(0, 10)}-to-${new Date(new Date(p.until).getTime() - 1).toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+                    return res.end(admin.paymentsCsv(p));
+                }
+                if (method === 'GET' && path === '/api/admin/flags')
+                    return send(res, 200, await admin.flags(url.searchParams.get('state') ?? 'open'));
+                const flag = /^\/api\/admin\/flags\/([\w-]{8,64})\/resolve$/.exec(path);
+                if (flag && method === 'POST') {
+                    const b = await json(req);
+                    return await admin.resolveFlag(by, flag[1], b['note']) ? send(res, 200, { ok: true }) : send(res, 404, { error: 'not-found' });
+                }
+                if (method === 'GET' && path === '/api/admin/referrals')
+                    return send(res, 200, await admin.referrals());
+                return send(res, 404, { error: 'not-found' });
             }
             // ---- Local development and tests only ----
             if (config.devFakes && outbox) {

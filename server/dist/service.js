@@ -163,7 +163,7 @@ export class Service {
         else if (await take(undefined) === 'ok')
             paidFrom = 'sessions';
         if (!paidFrom) {
-            await this.store.updateDrive(drive.id, { status: 'failed' });
+            await this.store.updateDrive(drive.id, { status: 'unpaid' });
             return { ok: false, reason: 'no-sessions' };
         }
         await this.store.updateDrive(drive.id, { paidFrom });
@@ -172,7 +172,7 @@ export class Service {
     /** The app reports how the drive went; one that failed to load gives its session back. */
     async driveStatus(accountId, driveId, status) {
         const d = await this.store.getDrive(driveId);
-        if (!d || d.accountId !== accountId)
+        if (!d || d.accountId !== accountId || d.status === 'unpaid')
             return false;
         if (status === 'failed' && d.status === 'started' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
             const today = await this.store.countDrives({ accountId, since: new Date(Date.now() - 24 * 3600_000), refunded: true });

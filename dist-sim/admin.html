@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Admin hub · Driving Practice</title><style>
+:root{color-scheme:light;--ink:#0f172a;--soft:#475569;--faint:#64748b;--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--accent:#0f766e;--accent-ink:#fff;--bad:#b91c1c;--warn:#b45309;--good:#15803d;--chip:#f1f5f9}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ink:#f1f5f9;--soft:#94a3b8;--faint:#64748b;--bg:#070b16;--card:#0d1321;--line:#1e293b;--accent:#2dd4bf;--accent-ink:#04201d;--bad:#f87171;--warn:#fbbf24;--good:#4ade80;--chip:#1e293b}}
+:root[data-theme="dark"]{color-scheme:dark;--ink:#f1f5f9;--soft:#94a3b8;--faint:#64748b;--bg:#070b16;--card:#0d1321;--line:#1e293b;--accent:#2dd4bf;--accent-ink:#04201d;--bad:#f87171;--warn:#fbbf24;--good:#4ade80;--chip:#1e293b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+header h1{font-size:18px;margin:0;flex:1;min-width:160px}header .who{color:var(--soft);font-size:13px}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+nav.tabs button{border:none;background:none;padding:8px 12px;border-radius:10px;color:var(--soft);font-weight:600;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{background:var(--chip);color:var(--ink)}
+main{max-width:1100px;margin:0 auto;padding:18px 16px 64px}
+button,input,select,textarea{font:inherit;color:var(--ink)}
+button{cursor:pointer;background:var(--chip);border:1px solid var(--line);border-radius:10px;padding:7px 14px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.card h2{font-size:16px;margin:0 0 10px}.soft{color:var(--soft)}.small{font-size:13px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.stat b{display:block;font-size:24px;line-height:1.2;font-variant-numeric:tabular-nums}.stat span{color:var(--soft);font-size:13px}
+.stat small{display:block;color:var(--faint);font-size:12px;margin-top:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>input[type=search]{flex:1;min-width:180px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600;font-size:12.5px;white-space:nowrap}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.link{cursor:pointer}tr.link:hover td{background:var(--chip)}
+.neg{color:var(--bad)}.pos{color:var(--good)}.warn{color:var(--warn)}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--chip);font-size:12px;color:var(--soft)}
+.msg{padding:10px 12px;border-radius:10px;background:var(--chip);margin:10px 0}.msg.bad{color:var(--bad)}.msg.ok{color:var(--good)}
+.signin{max-width:420px;margin:40px auto}
+.signin form{display:grid;gap:10px}
+pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:var(--soft)}
+[hidden]{display:none!important}
+</style></head>
+<body>
+<header><h1>Driving Practice · Admin hub</h1><span class="who" id="who"></span>
+<button id="theme" type="button">Light / dark</button><button id="signout" type="button" hidden>Sign out</button></header>
+<nav class="tabs" id="tabs" hidden role="tablist">
+<button data-tab="overview" aria-selected="true">Overview</button><button data-tab="customers">Customers</button>
+<button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button>
+</nav>
+<main>
+<section id="signin" class="signin card" hidden>
+<h2>Sign in</h2><p class="soft small" id="signin-why">Sign in with an admin email address. You get a 6-digit code by email.</p>
+<form id="email-form"><input id="email" type="email" autocomplete="email" placeholder="Email address" required><button class="primary">Send code</button></form>
+<form id="code-form" hidden><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" required><button class="primary">Sign in</button></form>
+<div id="signin-msg"></div>
+</section>
+<section id="denied" class="card" hidden><h2>Not an admin account</h2><p class="soft">This account is signed in but is not on the admin list.</p></section>
+<section id="unavailable" class="card" hidden><h2>Admin hub unavailable</h2><p class="soft">The accounts service does not answer here (this copy has no server).</p></section>
+
+<section data-panel="overview" hidden>
+<div class="grid" id="stats"></div>
+<p class="soft small" id="stats-note"></p>
+</section>
+
+<section data-panel="customers" hidden>
+<div class="card"><form class="row" id="customer-search"><input type="search" id="customer-q" placeholder="Email, referral code or account id"><button class="primary">Search</button></form></div>
+<div class="card scroll"><table><thead><tr><th>Email</th><th>Joined</th><th class="num">Sessions</th><th class="num">Starter left</th><th>Paid</th><th>Invited by link</th></tr></thead><tbody id="customer-rows"></tbody></table></div>
+</section>
+
+<section data-panel="customer" hidden>
+<div class="row" style="margin-bottom:12px"><button id="back" type="button">← Customers</button></div>
+<div class="card" id="customer-head"></div>
+<div class="card"><h2>Adjust sessions</h2>
+<p class="soft small">Adds (or, with a minus, removes) drives, with a reason. Recorded in the ledger under your email; it cannot be edited afterwards, only corrected with another adjustment.</p>
+<form class="row" id="adjust"><input id="adjust-n" type="number" min="-50" max="50" step="1" value="1" style="width:90px" aria-label="Sessions">
+<select id="adjust-pot" aria-label="What they are for"><option value="">General sessions</option><option value="lesson">Starter: lesson</option><option value="test">Starter: mock test</option><option value="free">Starter: free drive</option></select>
+<input id="adjust-reason" maxlength="200" placeholder="Reason (shown in the ledger)" style="flex:1;min-width:200px" required><button class="primary">Record</button></form>
+<div id="adjust-msg"></div></div>
+<div class="card scroll"><h2>Ledger</h2><table><thead><tr><th>When</th><th>Type</th><th class="num">Sessions</th><th>For</th><th class="num">Money</th><th>Reason</th><th>By</th></tr></thead><tbody id="ledger-rows"></tbody></table></div>
+<div class="card scroll"><h2>Recent drives</h2><table><thead><tr><th>Started</th><th>Scenario</th><th>Kind</th><th>Status</th><th>Paid from</th></tr></thead><tbody id="drive-rows"></tbody></table></div>
+</section>
+
+<section data-panel="payments" hidden>
+<div class="card"><form class="row" id="payments-range"><label class="small soft">From <input type="date" id="from"></label><label class="small soft">To <input type="date" id="to"></label>
+<button class="primary">Show</button><a id="csv" class="small" href="#">Download CSV</a></form></div>
+<div class="card scroll"><p class="small soft" id="payments-total"></p><table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Pack / reason</th><th class="num">Money</th><th class="num">Sessions</th><th>Stripe</th></tr></thead><tbody id="payment-rows"></tbody></table></div>
+</section>
+
+<section data-panel="flags" hidden>
+<div class="card row"><label class="small soft">Show <select id="flag-state"><option value="open">Open</option><option value="resolved">Resolved</option><option value="all">All</option></select></label></div>
+<div id="flag-list"></div>
+</section>
+
+<section data-panel="referrals" hidden>
+<div class="card scroll"><p class="small soft" id="referrals-note"></p><table><thead><tr><th>Referrer</th><th>Code</th><th class="num">Joined</th><th class="num">Paid</th><th class="num">Sessions earned</th></tr></thead><tbody id="referral-rows"></tbody></table></div>
+</section>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+// ---- Theme (shared with the app: dp.theme.v1) ----
+const THEME='dp.theme.v1';
+const applyTheme=t=>{if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;else delete document.documentElement.dataset.theme};
+try{applyTheme(localStorage.getItem(THEME))}catch{}
+$('theme').onclick=()=>{
+  const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  const next=dark?'light':'dark';applyTheme(next);try{localStorage.setItem(THEME,next)}catch{}
+};
+
+// ---- Helpers (all text goes in with textContent: customer data is never HTML) ----
+function el(tag,props={},...kids){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(props)){if(k==='class')e.className=v;else if(k==='on')for(const [ev,f] of Object.entries(v))e.addEventListener(ev,f);else if(k in e)e[k]=v;else e.setAttribute(k,v)}
+  for(const kid of kids)if(kid!=null)e.append(kid instanceof Node?kid:String(kid));
+  return e;
+}
+const money=p=>`${p<0?'−':''}£${(Math.abs(p)/100).toFixed(2)}`;
+const when=s=>new Date(s).toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const day=s=>new Date(s).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+const POT={lesson:'Lesson',test:'Mock test',free:'Free drive'};
+const signed=n=>el('span',{class:n<0?'neg':n>0?'pos':''},n>0?`+${n}`:String(n));
+const msg=(box,text,kind='')=>{box.replaceChildren(text?el('div',{class:`msg ${kind}`},text):'')};
+class ApiError extends Error{constructor(status,code){super(code);this.status=status;this.code=code}}
+async function api(path,body){
+  const res=await fetch(path,body===undefined?{credentials:'same-origin'}:{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const type=res.headers.get('content-type')??'';
+  if(!type.includes('json'))throw new ApiError(res.status,'unavailable');
+  const data=await res.json();
+  if(!res.ok)throw new ApiError(res.status,data.error??data.result??'error');
+  return data;
+}
+
+// ---- Who is here ----
+const panels=[...document.querySelectorAll('[data-panel]')];
+function only(id){for(const s of ['signin','denied','unavailable'])$(s).hidden=s!==id;$('tabs').hidden=!!id;if(id)panels.forEach(p=>p.hidden=true)}
+async function start(){
+  let me;
+  try{me=await api('/api/me')}catch{only('unavailable');return}
+  if(!me.signedIn){only('signin');return}
+  $('who').textContent=me.email??'';$('signout').hidden=false;
+  try{const o=await api('/api/admin/overview');only(null);show('overview',o)}
+  catch(e){
+    if(e.code==='reauth'){$('signin-why').textContent='For the admin hub, sign in again (admin sign-ins last 12 hours).';$('email').value=me.email??'';only('signin')}
+    else if(e.status===403)only('denied');else only('unavailable');
+  }
+}
+$('email-form').onsubmit=async e=>{
+  e.preventDefault();
+  try{await api('/api/auth/email',{email:$('email').value});$('code-form').hidden=false;$('code').focus();msg($('signin-msg'),'Code sent. Check your email.','ok')}
+  catch(err){msg($('signin-msg'),err.code==='slow-down'?'Too many codes asked for: wait a while.':'Could not send a code to that address.','bad')}
+};
+$('code-form').onsubmit=async e=>{
+  e.preventDefault();
+  try{await api('/api/auth/email/code',{email:$('email').value,code:$('code').value});msg($('signin-msg'),'');$('code-form').hidden=true;$('code').value='';start()}
+  catch{msg($('signin-msg'),'Wrong or expired code.','bad')}
+};
+$('signout').onclick=async()=>{await api('/api/auth/logout',{}).catch(()=>{});location.reload()};
+
+// ---- Tabs ----
+const loaders={overview:()=>api('/api/admin/overview'),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
+$('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
+async function showTab(tab){
+  for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')));
+  try{show(tab,await loaders[tab]())}catch(e){if(e.code==='reauth'||e.status===401)start();else alert(`Could not load: ${e.code}`)}
+}
+function show(tab,data){
+  panels.forEach(p=>p.hidden=p.dataset.panel!==tab);
+  if(tab==='overview')renderOverview(data);
+  if(tab==='referrals')renderReferrals(data);
+}
+
+// ---- Overview ----
+function renderOverview(o){
+  const s=(value,label,note)=>el('div',{class:'stat'},el('b',{},value),el('span',{},label),note?el('small',{},note):null);
+  $('stats').replaceChildren(
+    s(o.accounts.total,'Accounts',`${o.accounts.new7} new in 7 days · ${o.accounts.new30} in 30`),
+    s(o.accounts.paying,'Paying customers','Paid with money at least once'),
+    s(money(o.money.netPence),'Net revenue',`${money(o.money.grossPence)} paid − ${money(o.money.refundedPence)} refunded`),
+    s(money(o.money.gross30Pence),'Paid in 30 days',`${o.money.payments30} payments`),
+    s(o.drives.started30,'Drives in 30 days',`${o.drives.lesson30} lessons · ${o.drives.test30} mock tests · ${o.drives.free30} free drives`),
+    s(o.drives.failed30,'Drives that failed to load','30 days (session given back, up to 3 a day each)'),
+    s(o.sessionsHeld.sessions,'Sessions held by customers',`plus ${o.sessionsHeld.allowances} Starter Pass drives`),
+    s(o.accounts.referred,'Joined by invite link',`${o.referrals.rewarded} referrer sessions earned`),
+    s(o.flags.open,'Open flags','Waiting for a person to look')
+  );
+  $('stats-note').textContent=`Money in ${o.currency.toUpperCase()}, from the ledger (Stripe events as received). Accounts are sign-ups to the simulator; "paying" excludes 100% promotion codes. Updated ${when(o.at)}.`;
+  setFlagCount(o.flags.open);
+}
+function setFlagCount(n){$('flag-count').textContent=n?`(${n})`:''}
+
+// ---- Customers ----
+$('customer-search').onsubmit=e=>{e.preventDefault();showTab('customers')};
+async function searchCustomers(){
+  const {customers}=await api(`/api/admin/customers?q=${encodeURIComponent($('customer-q').value.trim())}`);
+  $('customer-rows').replaceChildren(...customers.map(c=>el('tr',{class:'link',on:{click:()=>openCustomer(c.id)}},
+    el('td',{},c.email??'(no email)'),el('td',{},day(c.createdAt)),el('td',{class:'num'},c.balance),
+    el('td',{class:'num'},Object.values(c.allowances).reduce((a,b)=>a+b,0)),el('td',{},c.firstPaidAt?day(c.firstPaidAt):'—'),el('td',{},c.referred?'Yes':'—'))),
+    ...(customers.length?[]:[el('tr',{},el('td',{colSpan:6,class:'soft'},'No accounts match.'))]));
+}
+let current=null;
+async function openCustomer(id){
+  try{current=await api(`/api/admin/customers/${encodeURIComponent(id)}`)}catch(e){alert(`Could not load: ${e.code}`);return}
+  for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab==='customers'));
+  panels.forEach(p=>p.hidden=p.dataset.panel!=='customer');
+  renderCustomer();
+}
+function renderCustomer(){
+  const {account:a,ledger,drives}=current;
+  const al=Object.entries(a.allowances).map(([k,v])=>`${POT[k]} ${v}`).join(' · ');
+  $('customer-head').replaceChildren(el('h2',{id:'customer-email'},a.email??'(no email)'),
+    el('p',{class:'small soft'},`Account ${a.id} · joined ${when(a.createdAt)} · referral code ${a.referralCode}`),
+    el('div',{class:'grid'},
+      el('div',{class:'stat'},el('b',{id:'customer-balance'},a.balance),el('span',{},'General sessions')),
+      el('div',{class:'stat'},el('b',{},Object.values(a.allowances).reduce((x,y)=>x+y,0)),el('span',{},'Starter Pass drives left'),el('small',{},al)),
+      el('div',{class:'stat'},el('b',{},a.firstPaidAt?day(a.firstPaidAt):'—'),el('span',{},'First paid'),el('small',{},a.starterBought?'Starter Pass bought':'No Starter Pass')),
+      el('div',{class:'stat'},el('b',{},a.invited),el('span',{},'Joined with their link'),el('small',{},a.referrer?`Invited by ${a.referrer.email??a.referrer.code}`:'Not invited'))));
+  $('ledger-rows').replaceChildren(...ledger.slice().reverse().map(e=>el('tr',{},el('td',{},when(e.createdAt)),el('td',{},el('span',{class:'tag'},e.type)),
+    el('td',{class:'num'},signed(e.sessionsDelta)),el('td',{},e.pot?POT[e.pot]:'Sessions'),el('td',{class:'num'},e.amountPence?money(e.amountPence):''),
+    el('td',{},e.reason),el('td',{class:'small soft'},e.by??e.actor))));
+  $('drive-rows').replaceChildren(...drives.map(d=>el('tr',{},el('td',{},when(d.startedAt)),el('td',{},d.scenario),el('td',{},POT[d.mode]??d.mode),
+    el('td',{class:d.status==='failed'?'warn':''},d.status+(d.refunded?' (given back)':'')),el('td',{},d.paidFrom==='sessions'?'Sessions':`Starter: ${POT[d.paidFrom]}`))),
+    ...(drives.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No drives yet.'))]));
+}
+$('back').onclick=()=>showTab('customers');
+$('adjust').onsubmit=async e=>{
+  e.preventDefault();
+  const n=Number($('adjust-n').value),pot=$('adjust-pot').value,reason=$('adjust-reason').value.trim();
+  if(!Number.isInteger(n)||n===0||Math.abs(n)>50){msg($('adjust-msg'),'Enter a whole number from −50 to 50 (not 0).','bad');return}
+  const what=`${n>0?'Add':'Remove'} ${Math.abs(n)} ${pot?`Starter ${POT[pot].toLowerCase()}`:'general session'}${Math.abs(n)===1?'':'s'} ${n>0?'to':'from'} ${current.account.email}?`;
+  if(!confirm(what))return;
+  const button=e.submitter;button.disabled=true;
+  try{
+    const r=await api(`/api/admin/customers/${encodeURIComponent(current.account.id)}/adjust`,{sessions:n,pot:pot||null,reason,requestId:crypto.randomUUID()});
+    msg($('adjust-msg'),r.result==='ok'?'Recorded.':'Already recorded.','ok');$('adjust-reason').value='';
+    await openCustomer(current.account.id);
+  }catch(err){msg($('adjust-msg'),err.code==='insufficient'?'They do not have that many to remove.':err.code==='reason'?'Give a reason (3 to 200 characters).':`Not recorded: ${err.code}`,'bad')}
+  finally{button.disabled=false}
+};
+
+// ---- Payments ----
+const iso=d=>d.toISOString().slice(0,10);
+$('from').value=iso(new Date(Date.now()-30*86400_000));$('to').value=iso(new Date());
+const range=()=>`from=${$('from').value}&to=${$('to').value}`;
+$('payments-range').onsubmit=e=>{e.preventDefault();showTab('payments')};
+$('csv').onclick=e=>{e.preventDefault();location.href=`/api/admin/payments?${range()}&format=csv`};
+async function loadPayments(){
+  const {entries,totals}=await api(`/api/admin/payments?${range()}`);
+  $('payments-total').textContent=`${totals.payments} payments · ${money(totals.grossPence)} paid · ${money(totals.refundedPence)} refunded · ${money(totals.grossPence-totals.refundedPence)} net`;
+  $('payment-rows').replaceChildren(...entries.slice().reverse().map(e=>el('tr',{class:'link',on:{click:()=>openCustomer(e.accountId)}},
+    el('td',{},when(e.createdAt)),el('td',{},e.email??e.accountId),el('td',{},el('span',{class:'tag'},e.type)),el('td',{},e.reason),
+    el('td',{class:`num ${e.amountPence<0?'neg':''}`},money(e.amountPence)),el('td',{class:'num'},signed(e.sessionsDelta)),
+    el('td',{class:'small soft'},e.stripe?.paymentIntent??e.stripe?.checkoutSession??''))),
+    ...(entries.length?[]:[el('tr',{},el('td',{colSpan:7,class:'soft'},'No payments in this range.'))]));
+}
+
+// ---- Flags ----
+const FLAG={'partial-refund':'Partial refund of £5 or more: decide about the sessions','refund-after-use':'Refunded after a Starter drive was used',
+  'refund-unmatched':'Refund for a payment not in the ledger','dispute':'Card dispute','payment-no-account':'Payment with no matching account',
+  'payment-unknown-pack':'Payment for a link that is not a known pack','starter-duplicate-refund-needed':'Second Starter Pass: refund by hand in Stripe',
+  'referral-refused':'Invite not counted','referral-volume':'Many sign-ups on one invite link in a day','drive-refunds':'Many failed drives in a day (not given back)'};
+$('flag-state').onchange=()=>showTab('flags');
+async function loadFlags(){
+  const {flags}=await api(`/api/admin/flags?state=${$('flag-state').value}`);
+  $('flag-list').replaceChildren(...flags.map(f=>{
+    const who=f.data.account??f.data.referrer;
+    const note=el('input',{placeholder:'What was done (optional)',maxLength:300,style:'flex:1;min-width:200px'});
+    return el('div',{class:'card flag'},
+      el('div',{class:'row'},el('b',{style:'flex:1'},FLAG[f.kind]??f.kind),el('span',{class:'small soft'},when(f.createdAt))),
+      el('pre',{},Object.entries(f.data).map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v):v}`).join('\n')),
+      f.resolvedAt?el('p',{class:'small pos'},`Resolved ${when(f.resolvedAt)} by ${f.resolvedBy}${f.note?`: ${f.note}`:''}`)
+        :el('form',{class:'row',style:'margin-top:10px',on:{submit:async e=>{e.preventDefault();try{await api(`/api/admin/flags/${encodeURIComponent(f.id)}/resolve`,{note:note.value});showTab('flags')}catch(err){alert(`Not saved: ${err.code}`)}}}},
+          note,el('button',{class:'primary'},'Mark resolved')),
+      typeof who==='string'?el('button',{type:'button',style:'margin-top:8px',on:{click:()=>openCustomer(who)}},'Open customer'):null);
+  }),...(flags.length?[]:[el('div',{class:'card soft'},'Nothing here.')]));
+  if($('flag-state').value==='open')setFlagCount(flags.length);
+}
+
+// ---- Referrals ----
+function renderReferrals(r){
+  $('referrals-note').textContent=`${r.referrers.length} people have brought in sign-ups. A referrer earns one session when someone they invited first pays with money; ${r.refused} invites were not counted (own link or an existing person).`;
+  $('referral-rows').replaceChildren(...r.referrers.map(x=>el('tr',{class:'link',on:{click:()=>openCustomer(x.id)}},
+    el('td',{},x.email??x.id),el('td',{},x.code),el('td',{class:'num'},x.joined),el('td',{class:'num'},x.paid),el('td',{class:'num'},x.rewards))),
+    ...(r.referrers.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No referrals yet.'))]));
+}
+start();
+</script>
+</body></html>

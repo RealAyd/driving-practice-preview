@@ -51,7 +51,8 @@ export class MemoryStore {
         return 'ok';
     }
     async ledger(q) {
-        return this.entries.filter(e => (!q.accountId || e.accountId === q.accountId) && (!q.paymentIntent || e.stripe?.paymentIntent === q.paymentIntent) && (!q.type || e.type === q.type));
+        return this.entries.filter(e => (!q.accountId || e.accountId === q.accountId) && (!q.paymentIntent || e.stripe?.paymentIntent === q.paymentIntent) && (!q.type || e.type === q.type)
+            && (!q.types || q.types.includes(e.type)) && (!q.since || e.createdAt >= q.since) && (!q.until || e.createdAt < q.until)).map(e => ({ ...e }));
     }
     async createDrive(d) {
         const drive = { ...d, id: randomUUID() };
@@ -88,5 +89,60 @@ export class MemoryStore {
         return true;
     }
     async flag(kind, data) { this.flagged.push({ id: randomUUID(), kind, data, createdAt: new Date() }); }
-    async flags() { return [...this.flagged]; }
+    async flags(q = {}) {
+        const state = q.state ?? 'all';
+        return this.flagged.filter(f => state === 'all' || (state === 'open') === !f.resolvedAt).reverse().slice(0, 200).map(f => ({ ...f }));
+    }
+    async resolveFlag(id, by, note) {
+        const f = this.flagged.find(x => x.id === id);
+        if (!f || f.resolvedAt)
+            return false;
+        Object.assign(f, { resolvedAt: new Date(), resolvedBy: by, note });
+        return true;
+    }
+    newest() { return [...this.accounts.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); }
+    async listAccounts(q) {
+        const t = q.search?.trim().toLowerCase();
+        return this.newest().filter(a => !t || a.email?.includes(t) || a.referralCode.toLowerCase() === t || a.id === t).slice(0, q.limit).map(a => ({ ...a, allowances: { ...a.allowances } }));
+    }
+    async findAccounts(ids) { return ids.flatMap(id => { const a = this.accounts.get(id); return a ? [{ ...a }] : []; }); }
+    async countAccounts(q) {
+        return [...this.accounts.values()].filter(a => (!q.since || a.createdAt >= q.since) && (!q.paid || !!a.firstPaidAt) && (!q.referred || !!a.referredBy)).length;
+    }
+    async heldTotals() {
+        let sessions = 0, allowances = 0;
+        for (const a of this.accounts.values()) {
+            sessions += a.balance;
+            allowances += Object.values(a.allowances ?? {}).reduce((n, v) => n + (v ?? 0), 0);
+        }
+        return { sessions, allowances };
+    }
+    async listDrives(q) {
+        return [...this.drives.values()].filter(d => (!q.accountId || d.accountId === q.accountId) && (!q.since || d.startedAt >= q.since))
+            .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, q.limit).map(d => ({ ...d }));
+    }
+    async referrers() {
+        const by = new Map();
+        for (const a of this.accounts.values()) {
+            if (!a.referredBy)
+                continue;
+            const r = by.get(a.referredBy) ?? { referrerId: a.referredBy, joined: 0, paid: 0 };
+            r.joined++;
+            if (a.firstPaidAt)
+                r.paid++;
+            by.set(a.referredBy, r);
+        }
+        return [...by.values()].sort((a, b) => b.joined - a.joined);
+    }
+    async driveCounts(since) {
+        const n = { lesson: 0, test: 0, free: 0, failed: 0, total: 0 };
+        for (const d of this.drives.values())
+            if (d.startedAt >= since && d.status !== 'unpaid') {
+                n.total++;
+                n[d.mode]++;
+                if (d.status === 'failed')
+                    n.failed++;
+            }
+        return n;
+    }
 }
