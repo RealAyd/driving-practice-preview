@@ -21,6 +21,8 @@ export function emailKey(email) {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** A sign-in code lasts this long; this many wrong guesses end it. */
 const CODE_MINUTES = 15, CODE_ATTEMPTS = 5;
+/** Partial refunds below this, in all on one payment, leave the sessions as they are without review (£5). */
+const SMALL_PARTIAL_REFUND_PENCE = 500;
 /** A drive that fails to load within this long of starting gives its session back; at most this many a day. */
 const REFUND_WINDOW_MS = 15 * 60_000, REFUNDS_PER_DAY = 3;
 export class Service {
@@ -273,14 +275,26 @@ export class Service {
                     return;
                 }
                 const full = o['refunded'] === true || o['amount_refunded'] === o['amount'];
+                const charge = String(o['id']), currency = String(o['currency'] ?? 'gbp');
+                // Stripe gives the total refunded so far on this payment: the money already recorded for it is taken off.
+                const refundedTotal = Number(o['amount_refunded'] ?? (full ? purchase.amountPence : 0));
+                const recorded = -entries.filter(e => e.type === 'refund' && e.stripe?.charge === charge).reduce((n, e) => n + e.amountPence, 0);
                 if (!full) {
-                    await this.store.flag('partial-refund', { event: event.id, account: purchase.accountId, paymentIntent: pi, amountRefunded: o['amount_refunded'] });
+                    // A partial refund (a goodwill gesture, a promotion code that was missed): the money is recorded and the
+                    // sessions stay. Under £5 in all on this payment that is all; from £5 a person decides about the sessions.
+                    if (refundedTotal <= recorded)
+                        return;
+                    const small = refundedTotal < SMALL_PARTIAL_REFUND_PENCE;
+                    await this.store.appendLedger({ product: 'simulator', accountId: purchase.accountId, type: 'refund', sessionsDelta: 0, amountPence: -(refundedTotal - recorded), currency,
+                        actor: 'stripe', stripe: { event: event.id, paymentIntent: pi, charge }, reason: small ? 'Partial refund (sessions kept)' : 'Partial refund (sessions under review)',
+                        idempotencyKey: `refund:${charge}:${refundedTotal}` });
+                    if (!small)
+                        await this.store.flag('partial-refund', { event: event.id, account: purchase.accountId, paymentIntent: pi, amountRefunded: refundedTotal });
                     return;
                 }
-                const charge = String(o['id']);
                 // General sessions come back even if spent (the balance can go below zero: drives stop until topped up).
                 await this.store.appendLedger({ product: 'simulator', accountId: purchase.accountId, type: 'refund', sessionsDelta: -purchase.sessionsDelta,
-                    amountPence: -Number(o['amount_refunded'] ?? purchase.amountPence), currency: String(o['currency'] ?? 'gbp'), actor: 'stripe',
+                    amountPence: -Math.max(0, refundedTotal - recorded), currency, actor: 'stripe',
                     stripe: { event: event.id, paymentIntent: pi, charge }, reason: 'Payment refunded', idempotencyKey: `refund:${charge}` });
                 // Starter allowances: each unused one is taken back; one already used stays used (flagged for a person).
                 for (const grant of entries.filter(e => e.type === 'allowance' && e.sessionsDelta > 0)) {
@@ -290,10 +304,7 @@ export class Service {
                     if (r === 'insufficient')
                         await this.store.flag('refund-after-use', { account: purchase.accountId, paymentIntent: pi, pot: grant.pot });
                 }
-                // A referral reward that this payment earned stays, for a person to decide (the referrer did nothing wrong).
-                const a = await this.store.findAccount({ id: purchase.accountId });
-                if (a?.referredBy)
-                    await this.store.flag('refund-after-referral-reward', { account: a.id, referrer: a.referredBy, paymentIntent: pi });
+                // A referral reward that this payment earned stays with the referrer (they did nothing wrong).
                 return;
             }
             case 'charge.dispute.created':
