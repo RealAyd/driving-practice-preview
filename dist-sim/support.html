@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>Help and support · Driving Practice</title><style>
+:root{color-scheme:light;--ink:#0f172a;--soft:#475569;--faint:#64748b;--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--accent:#0f766e;--accent-ink:#fff;--bad:#b91c1c;--good:#15803d;--chip:#f1f5f9;--mine:#ecfdf5;--theirs:#f8fafc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ink:#f1f5f9;--soft:#94a3b8;--faint:#64748b;--bg:#070b16;--card:#0d1321;--line:#1e293b;--accent:#2dd4bf;--accent-ink:#04201d;--bad:#f87171;--good:#4ade80;--chip:#1e293b;--mine:#0b2a26;--theirs:#111a2c}}
+:root[data-theme="dark"]{color-scheme:dark;--ink:#f1f5f9;--soft:#94a3b8;--faint:#64748b;--bg:#070b16;--card:#0d1321;--line:#1e293b;--accent:#2dd4bf;--accent-ink:#04201d;--bad:#f87171;--good:#4ade80;--chip:#1e293b;--mine:#0b2a26;--theirs:#111a2c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 64px}
+nav{display:flex;gap:12px;align-items:center;margin-bottom:14px;font-size:14px}nav a{color:var(--accent)}nav .grow{flex:1}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:17px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin:0 0 14px}
+.soft{color:var(--soft)}.small{font-size:13.5px}
+label{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}label .soft{font-weight:400}
+input,select,textarea,button{font:inherit;color:var(--ink)}
+input,select,textarea{width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+textarea{min-height:130px;resize:vertical}
+button{cursor:pointer;background:var(--chip);border:1px solid var(--line);border-radius:10px;padding:9px 16px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.55;cursor:default}
+.actions{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.msg{padding:10px 12px;border-radius:10px;background:var(--chip);margin:12px 0 0}.msg.bad{color:var(--bad)}.msg.ok{color:var(--good)}
+.trap{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+ul.requests{list-style:none;margin:0;padding:0}
+ul.requests li{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+ul.requests li:last-child{border-bottom:none}ul.requests .what{flex:1;min-width:0}
+ul.requests .what span{display:block;color:var(--soft);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
+.tag{display:inline-block;padding:1px 9px;border-radius:999px;background:var(--chip);font-size:12.5px;color:var(--soft);white-space:nowrap}
+.thread{display:grid;gap:10px}
+.bubble{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--theirs)}
+.bubble.mine{background:var(--mine)}
+.bubble .who{font-size:12.5px;color:var(--soft);margin-bottom:4px}
+.bubble p{margin:0;white-space:pre-wrap;word-break:break-word}
+.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.shots a{display:block;border:1px solid var(--line);border-radius:10px;overflow:hidden;width:96px;height:96px;background:var(--chip)}
+.shots img{width:100%;height:100%;object-fit:cover;display:block}
+.shots a.file{display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--soft);text-decoration:none}
+[hidden]{display:none!important}
+</style></head>
+<body><main>
+<nav><a href="./">← Driving Practice</a><span class="grow"></span><a href="legal/privacy.html">Privacy</a></nav>
+<h1>Help and support</h1>
+<p class="soft" id="intro">Tell us what happened and we will reply by email, usually within a day.</p>
+
+<section class="card" id="offline" hidden><h2>Email us</h2>
+<p>Write to <a href="mailto:support.drivingpractice@gmail.com?subject=Driving%20Practice%20help">support.drivingpractice@gmail.com</a> and we will reply by email. Say which device you use and what happened; screenshots help.</p></section>
+
+<section class="card" id="mine" hidden><h2>Your requests</h2><ul class="requests" id="mine-list"></ul></section>
+
+<section class="card" id="thread-card" hidden>
+<div class="actions" style="margin:0 0 12px"><button type="button" id="thread-back">← All requests</button></div>
+<h2 id="thread-title"></h2><p class="small soft" id="thread-meta"></p>
+<div class="thread" id="thread"></div>
+<form id="reply" style="margin-top:14px"><label for="reply-text">Add a reply</label><textarea id="reply-text" maxlength="4000" required placeholder="Anything more to tell us"></textarea>
+<label for="reply-files">Screenshots <span class="soft">(optional, up to 5)</span></label><input id="reply-files" type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple>
+<div class="actions"><button class="primary" id="reply-send">Send reply</button></div><div id="reply-msg"></div></form>
+</section>
+
+<section class="card" id="sent" hidden><h2 id="sent-title"></h2><p id="sent-body"></p><div class="actions"><button type="button" id="another">Send another request</button></div></section>
+
+<form class="card" id="new" hidden novalidate>
+<h2>New request</h2>
+<label for="email">Your email <span class="soft">(an address that can receive our replies)</span></label><input id="email" type="email" autocomplete="email" required maxlength="254">
+<label for="phone">Phone <span class="soft">(optional, with country code, e.g. +44 7700 900123)</span></label><input id="phone" type="tel" autocomplete="tel" maxlength="30">
+<label for="category">What is it about?</label><select id="category" required></select>
+<label for="description">What happened?</label><textarea id="description" maxlength="4000" required placeholder="What you were doing, what you expected, and what happened instead. Which phone or computer?"></textarea>
+<label for="files">Screenshots <span class="soft">(optional, up to 5, 10 MB each)</span></label><input id="files" type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple>
+<div class="trap" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off"></div>
+<div class="actions"><button class="primary" id="send">Send request</button><span class="small soft">We use these details only to answer you.</span></div>
+<div id="new-msg"></div>
+</form>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+try{const t=localStorage.getItem('dp.theme.v1');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}
+function el(tag,props={},...kids){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(props)){if(k==='class')e.className=v;else if(k==='on')for(const [ev,f] of Object.entries(v))e.addEventListener(ev,f);else if(k in e)e[k]=v;else e.setAttribute(k,v)}
+  for(const kid of kids)if(kid!=null)e.append(kid instanceof Node?kid:String(kid));
+  return e;
+}
+const msg=(box,text,kind='')=>box.replaceChildren(text?el('div',{class:`msg ${kind}`},text):'');
+const when=s=>new Date(s).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+class ApiError extends Error{constructor(status,code){super(code);this.status=status;this.code=code}}
+async function api(path,body){
+  const res=await fetch(path,body===undefined?{credentials:'same-origin'}:{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!(res.headers.get('content-type')??'').includes('json'))throw new ApiError(res.status,'unavailable');
+  const data=await res.json();
+  if(!res.ok)throw new ApiError(res.status,data.error??'error');
+  return data;
+}
+
+let config=null,me={signedIn:false};
+const params=new URLSearchParams(location.search);
+const link={ticket:params.get('ticket'),t:params.get('t')};
+let current=null;
+
+// ---- Screenshots: checked here for count and size; the server checks what they really are ----
+async function uploadAll(input,box){
+  const files=[...input.files];
+  if(files.length>config.maxScreenshots){msg(box,`Up to ${config.maxScreenshots} screenshots, please.`,'bad');return null}
+  const big=files.find(f=>f.size>config.maxScreenshotBytes);
+  if(big){msg(box,`${big.name} is over ${Math.round(config.maxScreenshotBytes/1048576)} MB.`,'bad');return null}
+  const out=[];
+  for(const f of files){
+    msg(box,`Uploading ${f.name}…`);
+    const res=await fetch('/api/support/attachments',{method:'POST',credentials:'same-origin',headers:{'Content-Type':f.type||'application/octet-stream'},body:f});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){msg(box,res.status===415?`${f.name} is not a JPEG, PNG, WebP or HEIC image.`:res.status===413?`${f.name} is too large.`:'Could not upload a screenshot. Try again in a while.','bad');return null}
+    out.push(data);
+  }
+  return out;
+}
+
+// ---- New request ----
+$('new').onsubmit=async e=>{
+  e.preventDefault();
+  const box=$('new-msg'),send=$('send');
+  if(!$('email').value.trim()||!$('description').value.trim()){msg(box,'Your email and what happened are needed.','bad');return}
+  send.disabled=true;
+  try{
+    const attachments=await uploadAll($('files'),box);
+    if(!attachments)return;
+    msg(box,'Sending…');
+    const r=await api('/api/support/tickets',{email:$('email').value,phone:$('phone').value,category:$('category').value,description:$('description').value,attachments,website:$('website').value});
+    msg(box,'');$('new').reset();if(me.signedIn)$('email').value=me.email??'';
+    $('new').hidden=true;$('sent').hidden=false;
+    $('sent-title').textContent=`Request ${r.ref} sent`;
+    $('sent-body').textContent=me.signedIn?'We have emailed you a copy. Our reply will appear here and in your email.':'We have emailed you a copy with a link to follow it, add details, and read our replies.';
+    if(me.signedIn)await loadMine();
+  }catch(err){
+    const why={email:'Check your email address.',phone:'Check the phone number: include the country code, e.g. +44 7700 900123.',category:'Choose what it is about.',
+      description:'Tell us a little more (at least 10 characters).','slow-down':'Too many requests from here: please try again in an hour, or email us.'};
+    msg(box,why[err.code]??'Could not send. Try again, or email support.drivingpractice@gmail.com.','bad');
+  }finally{send.disabled=false}
+};
+$('another').onclick=()=>{$('sent').hidden=true;$('new').hidden=false};
+
+// ---- The signed-in list ----
+async function loadMine(){
+  const {tickets}=await api('/api/support/tickets');
+  $('mine').hidden=!tickets.length;
+  $('mine-list').replaceChildren(...tickets.map(t=>el('li',{on:{click:()=>openThread(t.id)}},
+    t.unread?el('span',{class:'dot',title:'New reply'}):null,
+    el('div',{class:'what'},el('b',{},t.ref),el('span',{},t.summary)),el('span',{class:'tag'},t.stateLabel))));
+}
+
+// ---- One request ----
+const shotUrl=id=>`/api/support/attachments/${encodeURIComponent(id)}${link.t?`?t=${encodeURIComponent(link.t)}`:''}`;
+async function openThread(id){
+  try{current=await api(`/api/support/tickets/${encodeURIComponent(id)}${link.t?`?t=${encodeURIComponent(link.t)}`:''}`)}
+  catch{$('offline').hidden=false;msg($('new-msg'),'');$('intro').textContent='That link has not worked. Sign in, or email us.';return}
+  const {ticket,messages}=current;
+  $('thread-card').hidden=false;$('new').hidden=true;$('mine').hidden=true;$('sent').hidden=true;
+  $('thread-back').hidden=!me.signedIn;
+  $('thread-title').textContent=`${ticket.ref}: ${ticket.categoryLabel}`;
+  $('thread-meta').textContent=`${ticket.stateLabel} · sent ${when(ticket.createdAt)} · replies go to ${ticket.email}`;
+  $('thread').replaceChildren(...messages.map(m=>el('div',{class:`bubble ${m.from==='customer'?'mine':''}`},
+    el('div',{class:'who'},`${m.from==='customer'?'You':'Driving Practice support'} · ${when(m.createdAt)}`),el('p',{},m.text),
+    m.attachments.length?el('div',{class:'shots'},...m.attachments.map(a=>el('a',{href:shotUrl(a),target:'_blank',rel:'noopener'},el('img',{src:shotUrl(a),alt:'Screenshot',loading:'lazy',on:{error:e=>{const a2=e.target.parentElement;a2.classList.add('file');a2.replaceChildren('Open image')}}})))):null)));
+}
+$('thread-back').onclick=async()=>{$('thread-card').hidden=true;$('new').hidden=false;history.replaceState(null,'',location.pathname);await loadMine()};
+$('reply').onsubmit=async e=>{
+  e.preventDefault();
+  const box=$('reply-msg'),button=$('reply-send');
+  button.disabled=true;
+  try{
+    const attachments=await uploadAll($('reply-files'),box);
+    if(!attachments)return;
+    await api(`/api/support/tickets/${encodeURIComponent(current.ticket.id)}/messages`,{text:$('reply-text').value,attachments,...(link.t?{t:link.t}:{})});
+    $('reply').reset();msg(box,'Sent. We will reply by email.','ok');
+    await openThread(current.ticket.id);
+  }catch(err){msg(box,err.code==='slow-down'?'Too many replies: please wait a while.':'Could not send. Try again.','bad')}
+  finally{button.disabled=false}
+};
+
+// ---- Start: the server answers here (the hosted app), or not (a preview copy: email instead) ----
+(async()=>{
+  try{config=await api('/api/support/config')}catch{$('offline').hidden=false;$('intro').hidden=true;return}
+  $('category').replaceChildren(el('option',{value:''},'Choose…'),...config.categories.map(c=>el('option',{value:c.id},c.label)));
+  try{me=await api('/api/me')}catch{}
+  if(me.signedIn){$('email').value=me.email??''}
+  $('new').hidden=false;
+  if(link.ticket)return openThread(link.ticket);
+  if(me.signedIn)await loadMine().catch(()=>{});
+})();
+</script>
+</body></html>
