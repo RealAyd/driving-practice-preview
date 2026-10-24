@@ -140,6 +140,12 @@ export function handler(service, outbox) {
                 setSession(res, null);
                 return send(res, 200, { ok: true });
             }
+            // The address to pay for a pack, made by the server for the signed-in account (never assembled by the browser).
+            if (method === 'POST' && path === '/api/checkout') {
+                const id = signedIn(), b = await json(req);
+                const r = await service.checkoutUrl(id, str(b['pack'], 40) ?? '');
+                return 'url' in r ? send(res, 200, r) : send(res, r.error === 'starter-bought' ? 409 : 400, r);
+            }
             if (method === 'POST' && path === '/api/drives') {
                 const id = signedIn(), b = await json(req);
                 const r = await service.startDrive(id, str(b['kind'], 40) ?? 'drive', str(b['scenario'], 80) ?? '');

@@ -1,4 +1,10 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+/** What a drive is, from its scenario id (the browser's own description of it is not trusted). */
+export function modeOf(scenario) {
+    return scenario.endsWith('-mock-test') ? 'test' : scenario.endsWith('-lesson') ? 'lesson' : 'free';
+}
+const SCENARIO = /^[a-z0-9][a-z0-9-]{0,79}$/;
+const POTS = ['lesson', 'test', 'free'];
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const sameHash = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 /** Referral codes: no 0/O or 1/I/L, so they can be read out. */
@@ -93,7 +99,7 @@ export class Service {
         const ledger = await this.store.ledger({ accountId });
         return {
             // (The id goes on the Payment Link as client_reference_id, so the webhook knows whose payment it is.)
-            id: a.id, email: a.email, balance: a.balance, starterBought: !!a.starterBought, referralCode: a.referralCode,
+            id: a.id, email: a.email, balance: a.balance, allowances: Object.fromEntries(POTS.map(p => [p, a.allowances?.[p] ?? 0])), starterBought: !!a.starterBought, referralCode: a.referralCode,
             invited: await this.store.countReferred(a.id), rewarded: ledger.filter(e => e.type === 'referral_bonus').length,
             history: ledger.slice(-20).reverse().map(e => ({ type: e.type, sessions: e.sessionsDelta, amountPence: e.amountPence, reason: e.reason, at: e.createdAt.toISOString() })),
             admin: !!a.email && this.config.adminEmails.includes(a.email)
@@ -138,15 +144,28 @@ export class Service {
         return this.signIn(provider, id, ref);
     }
     // ---- Drives: each one started uses one session ----
+    /**
+     * A drive of the kind its scenario is: a Starter allowance for that kind is used first, otherwise one general
+     * session. Taking it is atomic, so two drives started at once cannot both use the last one.
+     */
     async startDrive(accountId, kind, scenario) {
-        const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario: scenario.slice(0, 80), startedAt: new Date(), status: 'started' });
-        const r = await this.store.appendLedger({ product: 'simulator', accountId, type: 'consumed', sessionsDelta: -1, amountPence: 0, currency: 'gbp', actor: 'customer',
+        if (!SCENARIO.test(scenario))
+            return { ok: false, reason: 'no-sessions' };
+        const mode = modeOf(scenario);
+        const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'sessions', startedAt: new Date(), status: 'started' });
+        const take = (pot) => this.store.appendLedger({ product: 'simulator', accountId, type: 'consumed', sessionsDelta: -1, ...(pot ? { pot } : {}), amountPence: 0, currency: 'gbp', actor: 'customer',
             reason: `${kind}: ${scenario}`, idempotencyKey: `drive:${drive.id}` }, { requireBalance: true });
-        if (r !== 'ok') {
+        let paidFrom = null;
+        if (await take(mode) === 'ok')
+            paidFrom = mode;
+        else if (await take(undefined) === 'ok')
+            paidFrom = 'sessions';
+        if (!paidFrom) {
             await this.store.updateDrive(drive.id, { status: 'failed' });
             return { ok: false, reason: 'no-sessions' };
         }
-        return { ok: true, drive, balance: (await this.store.findAccount({ id: accountId })).balance };
+        await this.store.updateDrive(drive.id, { paidFrom });
+        return { ok: true, drive: { ...drive, paidFrom }, balance: (await this.store.findAccount({ id: accountId })).balance };
     }
     /** The app reports how the drive went; one that failed to load gives its session back. */
     async driveStatus(accountId, driveId, status) {
@@ -160,8 +179,8 @@ export class Service {
                 await this.store.updateDrive(driveId, { status });
                 return true;
             }
-            const r = await this.store.appendLedger({ product: 'simulator', accountId, type: 'drive_refund', sessionsDelta: 1, amountPence: 0, currency: 'gbp', actor: 'system',
-                reason: 'The drive did not load', idempotencyKey: `drive-refund:${driveId}` });
+            const r = await this.store.appendLedger({ product: 'simulator', accountId, type: 'drive_refund', sessionsDelta: 1, ...(d.paidFrom !== 'sessions' ? { pot: d.paidFrom } : {}),
+                amountPence: 0, currency: 'gbp', actor: 'system', reason: 'The drive did not load', idempotencyKey: `drive-refund:${driveId}` });
             await this.store.updateDrive(driveId, { status, refunded: r === 'ok' || r === 'duplicate' });
             return true;
         }
@@ -172,17 +191,44 @@ export class Service {
     // ---- Payments (Stripe Payment Links) ----
     /** The packs on sale in this mode, as the app shows them. */
     packs() {
-        return this.config.packs.map(p => ({ id: p.id, label: p.label, price: p.price, sessions: p.sessions, starter: !!p.starter, url: p.links[this.config.stripeMode] || null }));
+        return this.config.packs.map(p => ({ id: p.id, label: p.label, price: p.price, description: p.description ?? '', sessions: p.sessions, allowances: p.allowances ?? {},
+            starter: !!p.starter, onSale: !!p.links[this.config.stripeMode] }));
     }
+    /**
+     * The address to pay for a pack: its Payment Link with this account as the client reference (the webhook credits
+     * that account). The Starter Pass is not offered to an account that has it.
+     */
+    async checkoutUrl(accountId, packId) {
+        const pack = this.config.packs.find(p => p.id === packId);
+        if (!pack)
+            return { error: 'unknown-pack' };
+        const link = pack.links[this.config.stripeMode];
+        if (!link)
+            return { error: 'not-on-sale' };
+        const a = await this.store.findAccount({ id: accountId });
+        if (!a)
+            return { error: 'unknown-pack' };
+        if (pack.starter && a.starterBought)
+            return { error: 'starter-bought' };
+        const url = new URL(link);
+        url.searchParams.set('client_reference_id', a.id);
+        if (a.email)
+            url.searchParams.set('prefilled_email', a.email);
+        return { url: url.toString() };
+    }
+    /** The pack a paid Payment Link sells: the link is looked up with Stripe and matched to the server's own packs. */
     async packForLink(linkId) {
         if (!linkId || !this.stripe)
-            return { pack: null, sessions: null };
+            return null;
         const link = await this.stripe.paymentLink(linkId);
         if (!link)
-            return { pack: null, sessions: null };
-        const pack = this.config.packs.find(p => p.links.test === link.url || p.links.live === link.url) ?? null;
+            return null;
+        const known = this.config.packs.find(p => p.links[this.config.stripeMode] === link.url);
+        if (known)
+            return known;
+        // Not listed: its metadata `sessions` (general sessions only; never a Starter Pass).
         const fromMeta = Number(link.metadata['sessions']);
-        return { pack, sessions: pack?.sessions ?? (Number.isInteger(fromMeta) && fromMeta > 0 ? fromMeta : null) };
+        return Number.isInteger(fromMeta) && fromMeta > 0 && fromMeta <= 100 ? { id: `link-${linkId}`, label: 'Sessions', price: '', sessions: fromMeta, links: { test: '', live: '' } } : null;
     }
     async stripeWebhook(raw, signature) {
         let event;
@@ -210,19 +256,37 @@ export class Service {
             }
             case 'charge.refunded': {
                 const pi = typeof o['payment_intent'] === 'string' ? o['payment_intent'] : null;
-                const purchase = pi ? (await this.store.ledger({ paymentIntent: pi })).find(e => e.type === 'purchase') : null;
+                const entries = pi ? await this.store.ledger({ paymentIntent: pi }) : [];
+                const purchase = entries.find(e => e.type === 'purchase');
                 if (!purchase) {
                     await this.store.flag('refund-unmatched', { event: event.id, paymentIntent: pi });
                     return;
                 }
-                const full = o['refunded'] === true || o['amount_refunded'] === o['amount'];
-                if (!full) {
-                    await this.store.flag('partial-refund', { event: event.id, account: purchase.accountId, paymentIntent: pi });
+                // A second Starter Pass refunded by this service: nothing was granted, so only the money is recorded.
+                if (entries.some(e => e.type === 'starter_duplicate')) {
+                    await this.store.appendLedger({ product: 'simulator', accountId: purchase.accountId, type: 'refund', sessionsDelta: 0, amountPence: -Number(o['amount_refunded'] ?? 0),
+                        currency: String(o['currency'] ?? 'gbp'), actor: 'stripe', stripe: { event: event.id, paymentIntent: pi, charge: String(o['id']) },
+                        reason: 'Second Starter Pass refunded', idempotencyKey: `refund:${String(o['id'])}` });
                     return;
                 }
+                const full = o['refunded'] === true || o['amount_refunded'] === o['amount'];
+                if (!full) {
+                    await this.store.flag('partial-refund', { event: event.id, account: purchase.accountId, paymentIntent: pi, amountRefunded: o['amount_refunded'] });
+                    return;
+                }
+                const charge = String(o['id']);
+                // General sessions come back even if spent (the balance can go below zero: drives stop until topped up).
                 await this.store.appendLedger({ product: 'simulator', accountId: purchase.accountId, type: 'refund', sessionsDelta: -purchase.sessionsDelta,
                     amountPence: -Number(o['amount_refunded'] ?? purchase.amountPence), currency: String(o['currency'] ?? 'gbp'), actor: 'stripe',
-                    stripe: { event: event.id, paymentIntent: pi, charge: String(o['id']) }, reason: 'Payment refunded', idempotencyKey: `refund:${String(o['id'])}` });
+                    stripe: { event: event.id, paymentIntent: pi, charge }, reason: 'Payment refunded', idempotencyKey: `refund:${charge}` });
+                // Starter allowances: each unused one is taken back; one already used stays used (flagged for a person).
+                for (const grant of entries.filter(e => e.type === 'allowance' && e.sessionsDelta > 0)) {
+                    const r = await this.store.appendLedger({ product: 'simulator', accountId: purchase.accountId, type: 'refund', sessionsDelta: -grant.sessionsDelta, pot: grant.pot,
+                        amountPence: 0, currency: String(o['currency'] ?? 'gbp'), actor: 'stripe', stripe: { event: event.id, paymentIntent: pi, charge },
+                        reason: 'Payment refunded', idempotencyKey: `refund:${charge}:${grant.pot}` }, { requireBalance: true });
+                    if (r === 'insufficient')
+                        await this.store.flag('refund-after-use', { account: purchase.accountId, paymentIntent: pi, pot: grant.pot });
+                }
                 // A referral reward that this payment earned stays, for a person to decide (the referrer did nothing wrong).
                 const a = await this.store.findAccount({ id: purchase.accountId });
                 if (a?.referredBy)
@@ -234,6 +298,10 @@ export class Service {
                 return;
         }
     }
+    /**
+     * A paid checkout: every step is idempotent (keys on the checkout), so a webhook delivered twice, or two deliveries
+     * at the same moment, grant once, and a delivery that stopped part-way finishes on the retry.
+     */
     async credit(event, o) {
         const sessionId = String(o['id']);
         const ref = typeof o['client_reference_id'] === 'string' ? o['client_reference_id'] : null;
@@ -241,26 +309,51 @@ export class Service {
         const account = (ref ? await this.store.findAccount({ id: ref }) : null)
             ?? (details?.email ? await this.store.findAccount({ email: normaliseEmail(details.email) }) : null);
         const linkId = typeof o['payment_link'] === 'string' ? o['payment_link'] : null;
-        const { pack, sessions } = await this.packForLink(linkId);
-        if (!account || !sessions) {
+        const pack = await this.packForLink(linkId);
+        if (!account || !pack) {
             await this.store.flag(account ? 'payment-unknown-pack' : 'payment-no-account', { event: event.id, checkoutSession: sessionId, paymentLink: linkId, email: details?.email ?? null, ref });
             return;
         }
-        const amount = Number(o['amount_total'] ?? 0);
+        const amount = Number(o['amount_total'] ?? 0), currency = String(o['currency'] ?? 'gbp');
         const pi = typeof o['payment_intent'] === 'string' ? o['payment_intent'] : undefined;
-        const r = await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: sessions, amountPence: amount,
-            currency: String(o['currency'] ?? 'gbp'), actor: 'stripe', stripe: { event: event.id, checkoutSession: sessionId, ...(pi ? { paymentIntent: pi } : {}), ...(linkId ? { paymentLink: linkId } : {}) },
-            reason: `${pack?.label ?? 'Sessions'} (${sessions})`, idempotencyKey: `checkout:${sessionId}` });
-        if (r !== 'ok')
-            return;
-        if (pack?.starter)
-            await this.store.updateAccount(account.id, { starterBought: true });
-        // The first payment with money: the person who invited them gets their free session.
-        if (amount > 0 && !account.firstPaidAt) {
-            await this.store.updateAccount(account.id, { firstPaidAt: new Date() });
+        const stripe = { event: event.id, checkoutSession: sessionId, ...(pi ? { paymentIntent: pi } : {}), ...(linkId ? { paymentLink: linkId } : {}) };
+        // The payment itself (the money, and any general sessions).
+        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: pack.sessions, amountPence: amount,
+            currency, actor: 'stripe', stripe, reason: pack.label, idempotencyKey: `checkout:${sessionId}` });
+        if (pack.starter) {
+            const claim = await this.store.claimStarter(account.id, sessionId);
+            if (claim === 'lost') {
+                await this.duplicateStarter(account.id, sessionId, pi, amount, currency);
+                return;
+            }
+            for (const pot of POTS) {
+                const n = pack.allowances?.[pot] ?? 0;
+                if (n > 0)
+                    await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: 'allowance', sessionsDelta: n, pot, amountPence: 0, currency, actor: 'stripe', stripe,
+                        reason: `${pack.label}: ${pot === 'test' ? 'mock test' : pot === 'free' ? 'free drive' : 'lesson'}`, idempotencyKey: `checkout:${sessionId}:${pot}` });
+            }
+        }
+        // A payment with money: the person who invited them gets their free session (once per invited person).
+        if (amount > 0) {
+            if (!account.firstPaidAt)
+                await this.store.updateAccount(account.id, { firstPaidAt: new Date() });
             if (account.referredBy)
                 await this.store.appendLedger({ product: 'simulator', accountId: account.referredBy, type: 'referral_bonus', sessionsDelta: 1, amountPence: 0, currency: 'gbp',
                     actor: 'system', reason: 'Free session: someone you invited bought sessions', idempotencyKey: `referral-bonus:${account.id}` });
         }
+    }
+    /**
+     * A second Starter Pass (the Payment Link is public, so it can be paid twice): nothing is granted and the payment
+     * is refunded in full straight away. If Stripe refuses the refund it is flagged for a person to refund by hand.
+     */
+    async duplicateStarter(accountId, sessionId, pi, amount, currency) {
+        const first = await this.store.appendLedger({ product: 'simulator', accountId, type: 'starter_duplicate', sessionsDelta: 0, amountPence: 0, currency, actor: 'system',
+            ...(pi ? { stripe: { checkoutSession: sessionId, paymentIntent: pi } } : {}),
+            reason: amount > 0 ? 'Starter Pass already bought: this payment is refunded' : 'Starter Pass already bought: not granted again', idempotencyKey: `starter-duplicate:${sessionId}` });
+        if (first !== 'ok' || amount <= 0 || !pi)
+            return;
+        const refunded = await this.stripe.refund(pi, 'Starter Pass already bought on this account').catch(() => false);
+        if (!refunded)
+            await this.store.flag('starter-duplicate-refund-needed', { account: accountId, checkoutSession: sessionId, paymentIntent: pi, amountPence: amount });
     }
 }

@@ -8,7 +8,8 @@ export class MemoryStore {
     flagged = [];
     async findAccount(q) {
         const [k, v] = Object.entries(q)[0];
-        return [...this.accounts.values()].find(a => a[k] === v) ?? null;
+        const a = [...this.accounts.values()].find(x => x[k] === v);
+        return a ? { ...a, allowances: { ...a.allowances } } : null;
     }
     async createAccount(a) {
         if (a.email && [...this.accounts.values()].some(x => x.email === a.email))
@@ -23,16 +24,30 @@ export class MemoryStore {
             Object.assign(a, set);
     }
     async countReferred(referrerId) { return [...this.accounts.values()].filter(a => a.referredBy === referrerId).length; }
+    async claimStarter(accountId, checkoutSession) {
+        const a = this.accounts.get(accountId);
+        if (!a)
+            return 'lost';
+        if (a.starterCheckout)
+            return a.starterCheckout === checkoutSession ? 'same' : 'lost';
+        a.starterCheckout = checkoutSession;
+        a.starterBought = true;
+        return 'won';
+    }
     async appendLedger(e, opts = {}) {
         if (this.entries.some(x => x.idempotencyKey === e.idempotencyKey))
             return 'duplicate';
         const a = this.accounts.get(e.accountId);
         if (!a)
             throw new Error('no such account');
-        if (opts.requireBalance && a.balance + e.sessionsDelta < 0)
+        const have = e.pot ? a.allowances?.[e.pot] ?? 0 : a.balance;
+        if (opts.requireBalance && have + e.sessionsDelta < 0)
             return 'insufficient';
         this.entries.push({ ...e, id: randomUUID(), createdAt: new Date() });
-        a.balance += e.sessionsDelta;
+        if (e.pot)
+            a.allowances = { ...a.allowances, [e.pot]: have + e.sessionsDelta };
+        else
+            a.balance += e.sessionsDelta;
         return 'ok';
     }
     async ledger(q) {
