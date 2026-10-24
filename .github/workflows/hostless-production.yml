@@ -1,0 +1,113 @@
+name: Hostless simulator production
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Simulator branch or commit to build
+        required: true
+        default: assets/batch-a
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: hostless-simulator-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'RealAyd/driving-practice-preview' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve source branch or abbreviated commit
+        id: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const response=await fetch('https://api.github.com/repos/RealAyd/driving-simulator-vr/commits/'+encodeURIComponent(process.env.SOURCE_REF),{headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'}});
+          if(!response.ok)throw new Error('Source commit lookup: HTTP '+response.status);
+          const {sha}=await response.json();
+          if(!/^[a-f0-9]{40}$/.test(sha))throw new Error('Source lookup did not return a full commit');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`sha=${sha}\n`);
+          console.log('Resolved source commit: '+sha);
+          NODE
+      - uses: actions/checkout@v4
+        with:
+          repository: RealAyd/driving-simulator-vr
+          ref: ${{ steps.source.outputs.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Check required secret names
+        env:
+          HOSTLESS_TOKEN: ${{ secrets.HOSTLESS_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND }}
+        run: |
+          node --input-type=module <<'NODE'
+          const missing=['HOSTLESS_TOKEN','RESEND_API_KEY'].filter(n=>!process.env[n]);
+          if(missing.length){console.error('Missing environment secrets: '+missing.join(', '));process.exit(1)}
+          console.log('Required secret names are configured');
+          NODE
+      - name: Prepare same-origin hosting
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: node hostless/prepare-production.mjs
+      - name: Build and test source
+        working-directory: source
+        env:
+          PREVIEW_SOURCE_BRANCH: ${{ inputs.source_ref }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm run build:server
+          npx vitest run server/test
+          node --input-type=module <<'NODE'
+          import {spawnSync} from 'node:child_process';
+          const result=spawnSync(process.execPath,['server/dist/index.js'],{encoding:'utf8',timeout:10000,env:{...process.env,NODE_ENV:'production',DP_DEV_FAKES:'0',STRIPE_SECRET_KEY:'rk_test_guard_check',STRIPE_WEBHOOK_SECRET:'whsec_guard_check',RESEND_API_KEY:'re_guard_check',MONGODB_URI:'mongodb://127.0.0.1:1/unused',SESSION_SECRET:'production-guard-test-secret-32-characters'}});
+          if(result.status!==1||!result.stderr.includes('Production requires a live Stripe secret key'))throw new Error('Production test-key rejection check failed');
+          console.log('Verified production refuses a test Stripe key before connecting to MongoDB');
+          NODE
+      - name: Package production release with access gate
+        run: |
+          mkdir -p .release/server
+          cp source/package.json source/package-lock.json .release/
+          cp -R source/dist-sim .release/dist-sim
+          cp -R source/server/dist .release/server/dist
+          cp source/server/packs.json .release/server/packs.json
+          cp hostless/Dockerfile .release/Dockerfile
+          cp hostless/hostless.yaml .release/hostless.yaml
+          cp source-provenance.json .release/dist-sim/build-info.json
+          rm -f .release/dist-sim/CNAME
+          node --input-type=module -e "import fs from 'node:fs';fs.writeFileSync('.release/dist-sim/access.json',JSON.stringify({gate:true}))"
+      - name: Publish isolated release branch
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -C .release init -b hostless-production-release
+          git -C .release config user.name 'github-actions[bot]'
+          git -C .release config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C .release remote add origin https://github.com/RealAyd/driving-practice-preview.git
+          gh auth setup-git
+          if git -C .release ls-remote --exit-code origin refs/heads/hostless-production-release >/dev/null 2>&1; then
+            git -C .release fetch --depth=1 origin hostless-production-release
+            git -C .release reset --soft FETCH_HEAD
+          fi
+          git -C .release add -A
+          git -C .release commit --allow-empty -m 'Build simulator Hostless production release'
+          git -C .release push origin HEAD:hostless-production-release
+          echo "commit=$(git -C .release rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Configure and deploy isolated Hostless production
+        env:
+          HOSTLESS_TOKEN: ${{ secrets.HOSTLESS_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: node hostless/deploy-production.mjs
