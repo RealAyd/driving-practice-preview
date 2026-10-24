@@ -141,3 +141,26 @@ gate=true and devCheckout=false. HTTPS /healthz returns 200. After rollout,
 91 available runtime log entries contained no Stripe webhook delivery or
 signature-mismatch lines. Payment crediting remains unverified; make a fresh
 Stripe TEST purchase or resend a previous failed test event to check delivery.
+
+## 24 October 2026, 10:30 UTC: end-to-end passed on https://staging.drivingpractice.live
+
+DNS now resolves (CNAME to gateway.hostless.cloud) and HTTPS answers; the deploy
+switched APP_BASE_URL to the custom domain. STRIPE_WEBHOOK_SECRET is the signing
+secret of the hostless.app endpoint (the custom-domain endpoint's deliveries are
+refused by signature; disable one of the two endpoints when convenient).
+Source commit 92a4c23 (server unchanged since 365d721).
+
+All PASS (real Resend email, real Stripe TEST checkout pages, test cards):
+config; email delivery (2 s), code and link (once each); cookie (HttpOnly, Secure,
+Lax, survives reload) and logout; server-built checkout address; VR 5 payment
+credited 5 sessions through the webhook; declined card and abandoned checkout
+grant nothing; Starter Pass grants 1 lesson + 1 mock test + 1 free drive, is then
+refused (409) and a second payment through the public link grants nothing and is
+refunded automatically (charge.refunded received); allowances used by the kind of
+drive the server decides; failed load gives the session back; 6 simultaneous starts
+with 5 sessions + 1 allowance start exactly 6; another account cannot report a
+drive; signed out cannot start; a forged cookie is refused.
+
+Still PENDING: code expiry (automated tests only), iPhone Safari cookies (needs a
+phone), manual refunds and disputes from the Stripe dashboard (automated tests only).
+Live payments are not switched on.
