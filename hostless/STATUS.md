@@ -164,3 +164,12 @@ drive; signed out cannot start; a forged cookie is refused.
 Still PENDING: code expiry (automated tests only), iPhone Safari cookies (needs a
 phone), manual refunds and disputes from the Stripe dashboard (automated tests only).
 Live payments are not switched on.
+
+## Production preparation — 24 October 2026
+
+Production now has its own app and database, manual workflow and release branch.
+See hostless/PRODUCTION.md for resource IDs, validation and current blocker.
+59 tests passed (6 skipped); live-key startup guard passed. User must save live
+STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET directly in dp-sim-production.
+The API refused secret reveal (403), so no credentials were copied from staging.
+Existing vr DNS is unchanged; cutover waits for healthy production startup.

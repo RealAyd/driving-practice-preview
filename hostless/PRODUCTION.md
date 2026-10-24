@@ -45,3 +45,25 @@ production deployment. Preserve production database data.
 
 Restore staging's test Stripe credentials via its existing staging workflow only
 after the live secrets have been saved to production, so they are not lost.
+
+## Provisioning result — 24 October 2026
+
+- App dp-sim-production: 6adcdf58ba7203f8cdadd53c.
+- Mongo instance dp-sim-production: 6adcdec1ba7203f8cdadcdf4, RUNNING/HEALTHY,
+  Mongo 7.0, 0.2 CPU / 512 MB / 2 GiB.
+- Scoped logical database/user connection verified from the Actions runner.
+- Production workflow run: https://github.com/RealAyd/driving-practice-preview/actions/runs/40112553761
+- Source: 6ed35823fb63d3be846ba8976e7f67fd2d12ea72.
+- Release: f3a2f88f8f731297916713fa9b18a76f5f9bd6c8.
+- Frontend/backend builds passed; 59 tests passed, 6 database-dependent tests
+  skipped. Compiled production startup correctly rejected a dummy test key.
+- Provisioned ADMIN_EMAILS, APP_BASE_URL, EMAIL_FROM, EMAIL_REPLY_TO, MONGODB_URI,
+  NODE_ENV, RESEND_API_KEY and SESSION_SECRET. Values were never printed.
+- App bootstrap stopped with missing STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.
+  User must save the live values directly in this new app; they cannot be read
+  from staging with the available API token. No workaround was used.
+- vr.drivingpractice.live was attached to the Hostless app for future cutover.
+  Public DNS still points to realayd.github.io; no DNS changes were made.
+- Staging currently advertises live Payment Links after the owner's key change.
+  After production secrets are saved, restore staging using its test workflow.
+- Production is NOT live/healthy yet; no live charge was attempted.
