@@ -6,17 +6,10 @@ const {MongoClient}=require('mongodb');
 const projectId='6ac5392e4b1c266c8f3f9f1b';
 const app='dp-sim-staging',database='dp-sim-staging',logicalDb='dp_sim_staging';
 const origin=`https://${app}.hostless.app`;
-// The address people use. APP_BASE_URL (sign-in links, the allowed origin for posts) is set to it once it serves this
-// app over HTTPS; until its DNS resolves, the platform address keeps sign-in working.
+// DNS and HTTPS verified on 24 October 2026. Keep the canonical origin stable:
+// a runner's cached negative DNS answer must not switch authentication back.
 const customOrigin='https://staging.drivingpractice.live';
-async function publicOrigin(){
-  try{
-    const r=await fetch(customOrigin+'/healthz',{signal:AbortSignal.timeout(10000)});
-    if(r.ok&&(await r.json()).ok===true)return customOrigin;
-  }catch{}
-  console.log(`${customOrigin} is not serving this app yet (DNS or certificate pending): APP_BASE_URL stays ${origin}`);
-  return origin;
-}
+async function publicOrigin(){return customOrigin}
 const events=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','charge.refunded','charge.dispute.created'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -118,9 +111,10 @@ async function main(){
       const health=await fetch(origin+'/healthz',{signal:AbortSignal.timeout(10000)});
       const config=await fetch(origin+'/api/config',{signal:AbortSignal.timeout(10000)});
       const local=require('../source-provenance.json');
-      if(info.ok&&gate.ok&&health.ok&&config.ok&&(await info.json()).commit===local.commit&&(await gate.json()).gate===true){
+      const served=info.ok?await info.json():null;
+      if(info.ok&&gate.ok&&health.ok&&config.ok&&served?.commit===local.commit&&served?.builtAt===local.builtAt&&(await gate.json()).gate===true){
         const body=await config.json();
-        if(body.devCheckout===true||body.gate!==true||!Array.isArray(body.packs))throw new Error('Unexpected staging API configuration');
+        if(body.devCheckout===true||body.gate!==true||body.appleRedirect!==`${appBaseUrl}/api/auth/apple/callback`||!Array.isArray(body.packs))throw new Error('Unexpected staging API configuration');
         console.log(`Verified source commit ${local.commit}, access gate, health and API config (${body.packs.length} packs).`);
         return;
       }
