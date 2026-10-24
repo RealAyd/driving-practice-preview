@@ -217,7 +217,8 @@ function renderOverview(o){
     s(o.accounts.referred,'Joined by invite link',`${o.referrals.rewarded} referrer sessions earned`),
     s(o.support.awaitingAdmin,'Support: waiting for you',`${o.support.open} open requests`),
     s(o.support.overdue,'Support: overdue',o.support.failedNotifications?`${o.support.failedNotifications} emails or alerts not sent`:'Not answered or acknowledged in 5 minutes'),
-    s(o.flags.open,'Open flags','Waiting for a person to look')
+    s(o.flags.open,'Open flags','Waiting for a person to look'),
+    s(o.webhooks.received,`Stripe webhooks (${o.webhooks.mode})`,`Since the server started${o.webhooks.lastReceivedAt?`; last ${when(o.webhooks.lastReceivedAt)}`:''}${o.webhooks.refused?` · ${o.webhooks.refused} refused: wrong signing secret?`:''}`)
   );
   $('stats-note').textContent=`Money in ${o.currency.toUpperCase()}, from the ledger (Stripe events as received). Accounts are sign-ups to the simulator; "paying" excludes 100% promotion codes. Updated ${when(o.at)}.`;
   setFlagCount(o.flags.open);setSupportCount(o.support.awaitingAdmin,o.support.overdue);
