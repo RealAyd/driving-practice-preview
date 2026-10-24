@@ -64,6 +64,27 @@ after the live secrets have been saved to production, so they are not lost.
   from staging with the available API token. No workaround was used.
 - vr.drivingpractice.live was attached to the Hostless app for future cutover.
   Public DNS still points to realayd.github.io; no DNS changes were made.
-- Staging currently advertises live Payment Links after the owner's key change.
-  After production secrets are saved, restore staging using its test workflow.
+- The owner saved a live key in staging settings. Runtime logs still show test
+  mode; the earlier inference from missing pack URL fields was incorrect because
+  the current API uses onSale and authenticated checkout. Restore the saved
+  staging settings with its test workflow after production credentials are saved.
 - Production is NOT live/healthy yet; no live charge was attempted.
+
+## Secrets added and runtime verified
+
+Owner added both live Stripe secret names to dp-sim-production. The app returned
+HTTP 200 from /healthz. Runtime logs confirm Stripe live mode. API config reports
+gate=true, devCheckout=false, canonical callback origin vr.drivingpractice.live,
+and all four packs onSale=true with correct prices and Starter allowances.
+The current API intentionally does not expose checkout URLs in /api/config;
+updated deployment verification to check availability and pack details instead.
+
+Production verification run: 40113268057. Staging test-configuration restore run:
+40113270201. Both use source 6ed35823fb63d3be846ba8976e7f67fd2d12ea72.
+Namecheap cutover instructions provided to owner: edit CNAME Host vr from
+realayd.github.io to gateway.hostless.cloud. Awaiting DNS confirmation. No real
+charge has been made, and live webhook crediting is not yet verified.
+
+At the last check both app health endpoints returned 200/ok. The two follow-up
+Actions jobs were assigned runners but had not reported build steps yet; their
+completion is not claimed here. Public vr DNS still resolves to realayd.github.io.
