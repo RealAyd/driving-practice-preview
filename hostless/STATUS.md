@@ -120,3 +120,24 @@ Blockers:
 Rollback: redeploy an earlier source commit with the workflow (source_ref), or
 the previous Hostless deployment; database data is not reverted.
 Live payments have not been switched on; production is unchanged.
+
+## 24 October 2026: custom-domain DNS activation
+
+Owner added CNAME staging.drivingpractice.live -> gateway.hostless.cloud at
+Namecheap. Public Google DNS initially returned NXDOMAIN, then resolved the
+correct CNAME. HTTPS /healthz on the custom domain returned 200 with ok=true.
+No Namecheap settings were changed by this agent.
+
+First rerun 40079666364 retained the platform APP_BASE_URL because the GitHub
+runner still saw a negative DNS result. Its verification also accepted the old
+build because the source commit matched. Fixed deploy.mjs to keep the verified
+canonical origin stable and require matching commit AND builtAt provenance,
+plus the API callback origin. New run: 40079776365, source_ref assets/batch-a.
+Hostless deployment: 6adc7215cfbe3ce006a06784.
+
+The new release now serves the custom origin: /api/config reports
+appleRedirect=https://staging.drivingpractice.live/api/auth/apple/callback,
+gate=true and devCheckout=false. HTTPS /healthz returns 200. After rollout,
+91 available runtime log entries contained no Stripe webhook delivery or
+signature-mismatch lines. Payment crediting remains unverified; make a fresh
+Stripe TEST purchase or resend a previous failed test event to check delivery.

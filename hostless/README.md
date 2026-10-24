@@ -34,8 +34,8 @@ Initial app URL: https://dp-sim-staging.hostless.app
 Initial webhook URL: https://dp-sim-staging.hostless.app/api/stripe/webhook
 Events: checkout.session.completed, checkout.session.async_payment_succeeded,
 checkout.session.async_payment_failed, charge.refunded, charge.dispute.created.
-APP_BASE_URL initially uses the platform URL so email links and cookies match.
-Namecheap custom DNS and the switch to staging.drivingpractice.live are pending.
+APP_BASE_URL uses https://staging.drivingpractice.live. Its CNAME to
+gateway.hostless.cloud and valid HTTPS were verified on 24 October 2026.
 Coordinate APP_BASE_URL, webhook URL and provider origins when switching domains.
 
 Administrator: dosumuaybamo1@gmail.com.
