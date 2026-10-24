@@ -49,12 +49,28 @@ export function stripeApi(config) {
             const known = links.get(id);
             if (known)
                 return known;
-            const link = await stripe.paymentLinks.retrieve(id).catch(() => null);
-            if (!link)
-                return null;
+            let link;
+            // No such link: null. Anything else (no permission, Stripe unreachable) is thrown for the caller to say.
+            try {
+                link = await stripe.paymentLinks.retrieve(id);
+            }
+            catch (e) {
+                if (e.code === 'resource_missing')
+                    return null;
+                throw e;
+            }
             const v = { url: link.url, metadata: { ...link.metadata } };
             links.set(id, v);
             return v;
+        },
+        async recentCheckouts(since) {
+            const out = [];
+            for await (const session of stripe.checkout.sessions.list({ created: { gte: Math.floor(since.getTime() / 1000) }, status: 'complete', limit: 100 })) {
+                out.push(session);
+                if (out.length >= 500)
+                    break;
+            }
+            return out;
         },
         async refund(paymentIntent, reason) {
             // (Idempotent at Stripe too: one refund per payment, however often this is asked.)
@@ -78,6 +94,8 @@ export const fakeIdentities = {
     async google(t) { const [sub = '', email = ''] = t.split('|'); return { sub, email, emailVerified: true }; },
     async apple(t) { const [sub = '', email = ''] = t.split('|'); return { sub, email: email || null, emailVerified: true }; }
 };
+/** Completed checkouts the fake Stripe reports (tests add them, as if paid without the webhook arriving). */
+export const checkouts = [];
 /** Refunds the fake Stripe was asked for (tests read them). */
 export const refunds = [];
 /** Fake Stripe: events are trusted JSON (signature "dev"); a payment link's id is its pack's id. */
@@ -92,6 +110,7 @@ export function fakeStripe(config) {
             const pack = config.packs.find(p => p.id === id);
             return pack ? { url: pack.links[config.stripeMode], metadata: {} } : null;
         },
-        async refund(paymentIntent) { refunds.push(paymentIntent); return !paymentIntent.includes('refuse'); }
+        async refund(paymentIntent) { refunds.push(paymentIntent); return !paymentIntent.includes('refuse'); },
+        async recentCheckouts(since) { return checkouts.filter(c => Number(c['created'] ?? 0) * 1000 >= since.getTime()); }
     };
 }

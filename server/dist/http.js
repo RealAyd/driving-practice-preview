@@ -159,6 +159,11 @@ export function handler(service, outbox) {
                 const r = await service.checkoutUrl(id, str(b['pack'], 40) ?? '');
                 return 'url' in r ? send(res, 200, r) : send(res, r.error === 'starter-bought' ? 409 : 400, r);
             }
+            // Back from paying: credit anything Stripe has that the webhook has not delivered yet.
+            if (method === 'POST' && path === '/api/checkout/reconcile') {
+                const r = await service.reconcile(signedIn());
+                return send(res, 'error' in r ? (r.error === 'slow-down' ? 429 : r.error === 'not-found' ? 404 : 503) : 200, r);
+            }
             if (method === 'POST' && path === '/api/drives') {
                 const id = signedIn(), b = await json(req);
                 const r = await service.startDrive(id, str(b['kind'], 40) ?? 'drive', str(b['scenario'], 80) ?? '');
@@ -223,7 +228,8 @@ export function handler(service, outbox) {
                     throw new HttpError(403, 'cross-site');
                 res.setHeader('X-Robots-Tag', 'noindex');
                 if (method === 'GET' && path === '/api/admin/overview')
-                    return send(res, 200, { ...await admin.overview(), support: await support.counts() });
+                    return send(res, 200, { ...await admin.overview(), support: await support.counts(),
+                        webhooks: { ...service.webhookStats, mode: config.stripeMode } });
                 // Support: the queue, a request, and what an admin can do with it.
                 if (method === 'GET' && path === '/api/admin/support')
                     return send(res, 200, await support.queue(url.searchParams.get('state') ?? 'open'));
