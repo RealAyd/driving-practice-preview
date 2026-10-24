@@ -64,3 +64,59 @@ gate=true and devCheckout=false. build-info.json matches source commit
 d4da039a97a30ef097df90694c2cc505cdb55d12. Runtime logs confirm API startup on port
 8000 in Stripe test mode. This verifies startup and configuration, not payment
 crediting, email delivery, browser operation or the Starter entitlement model.
+
+## 24 October 2026: packs, Starter enforcement, workflow fixes, end-to-end results
+
+Source: RealAyd/driving-simulator-vr `assets/batch-a`, commit 7291b73 (packs and
+Starter) then f786f86 (adds a log line per Stripe webhook delivery). Deployed URL:
+https://dp-sim-staging.hostless.app (Stripe TEST mode; access gate on).
+
+Workflow fixes on main (deploy.mjs): the app update rejected `gitCommitHash`
+(Hostless 400) and `deployments/new` needs undocumented fields, so the release now
+saves the settings with `?deploy=true` (releases the release-branch head; the
+existing check confirms the served commit). Hostless errors are printed with
+every secret masked. APP_BASE_URL switches to https://staging.drivingpractice.live
+on the first deploy after that domain serves the app; until then it stays on the
+platform URL.
+
+Packs (server/packs.json, test links): Starter Pass £2.99 = 1 lesson + 1 mock test
++ 1 free drive as three separate allowances, once per account; VR 5 £9.99, VR 15
+£24.99, VR 35 £49.99 = 5/15/35 general sessions. The server decides a drive's kind
+from its scenario; a second Starter payment is refunded automatically (flagged if
+Stripe refuses). Details and the refund/reconciliation path: server/README.md in
+the source repository.
+
+Automated tests (source repository): 34 server tests + 4 against a real MongoDB
+(concurrent webhooks, concurrent drive starts, simultaneous Starter payments),
+G26 browser flow with fakes. All pass.
+
+End-to-end on staging (real Resend email to throwaway inboxes, real Stripe
+test-mode checkout pages, test cards):
+- PASS config (gate on, no dev checkout, the four packs and prices)
+- PASS email delivery (about 5 s), code (wrong/right/reused), link (once, reuse refused)
+- PASS session cookie (survives reload; HttpOnly, Secure, SameSite=Lax); logout
+- PASS server-built checkout address (account reference and email)
+- PASS declined card and abandoned checkout grant nothing
+- FAIL payment credit: test payments complete at Stripe (the browser is sent to
+  https://staging.drivingpractice.live/?checkout=done) but no sessions arrive.
+  The webhook endpoint is reported as https://staging.drivingpractice.live/api/stripe/webhook,
+  and that name does not resolve (NXDOMAIN on public DNS as of 02:00 UTC), so
+  Stripe cannot deliver. Starter, duplicate Starter, session use, refunds,
+  disputes and isolation on staging are blocked behind this.
+- PENDING expired code (automated tests only), iPhone Safari cookies (needs a phone)
+
+Blockers:
+1. DNS: add the record Hostless shows for staging.drivingpractice.live (app
+   dp-sim-staging, Settings > Custom domains) at Namecheap; then rerun the
+   workflow so APP_BASE_URL switches. Resend's records for drivingpractice.live
+   are present (DKIM, send.* SPF/MX) and email is delivering.
+2. Webhook: until DNS resolves, either wait, or add a second TEST endpoint for
+   https://dp-sim-staging.hostless.app/api/stripe/webhook and put its signing
+   secret in STRIPE_WEBHOOK_SECRET. Runtime logs now show each delivery
+   ("Stripe webhook: <type> <id>") or a signature mismatch.
+3. The Stripe key needs Refunds write permission for the automatic refund of a
+   second Starter Pass (otherwise it is flagged for a manual refund).
+
+Rollback: redeploy an earlier source commit with the workflow (source_ref), or
+the previous Hostless deployment; database data is not reverted.
+Live payments have not been switched on; production is unchanged.
