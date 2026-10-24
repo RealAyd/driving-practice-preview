@@ -154,7 +154,7 @@ export class Support {
     /** A signed-in customer's requests, newest activity first, with whether there is a reply they have not seen. */
     async mine(accountId) {
         return (await this.db.listTickets({ accountId, limit: 50 })).map(t => ({ id: t.id, ref: t.ref, category: t.category, summary: t.summary, state: t.state, stateLabel: customerState(t.state),
-            updatedAt: t.updatedAt.toISOString(), unread: !!t.lastAdminMessageAt && (!t.customerReadAt || t.lastAdminMessageAt > t.customerReadAt) }));
+            updatedAt: t.updatedAt.toISOString(), unread: !!t.lastAdminMessageAt && (!t.customerReadAt || t.lastAdminMessageAt >= t.customerReadAt) }));
     }
     /** The customer's view of one request (no internal notes or logged changes); it counts as read. */
     async customerView(id, v, now = new Date()) {
