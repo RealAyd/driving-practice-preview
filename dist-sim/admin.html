@@ -38,12 +38,26 @@ tr.link{cursor:pointer}tr.link:hover td{background:var(--chip)}
 .signin form{display:grid;gap:10px}
 pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:var(--soft)}
 [hidden]{display:none!important}
+.pri{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.pri.highest{background:#fee2e2;color:#991b1b}.pri.high{background:#ffedd5;color:#9a3412}.pri.normal{background:var(--chip);color:var(--soft)}.pri.lower{background:var(--chip);color:var(--faint)}
+.overdue{color:var(--bad);font-weight:700}.unread-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px}
+.thread{display:grid;gap:10px}
+.bubble{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.bubble.customer{background:var(--chip)}.bubble.note{background:#fef9c3;color:#422006;border-color:#fde047}
+.bubble.event{border:none;padding:0 4px;font-size:12.5px;color:var(--faint)}
+.bubble .who{font-size:12px;color:var(--soft);margin-bottom:4px}.bubble.note .who{color:#854d0e}
+.bubble p{margin:0;white-space:pre-wrap;word-break:break-word}
+.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.shots a{display:block;width:110px;height:110px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--chip)}
+.shots img{width:100%;height:100%;object-fit:cover;display:block}
+textarea{width:100%;min-height:110px;resize:vertical}
+dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:14px}dl.facts dt{color:var(--soft)}dl.facts dd{margin:0;word-break:break-word}
 </style></head>
 <body>
 <header><h1>Driving Practice · Admin hub</h1><span class="who" id="who"></span>
 <button id="theme" type="button">Light / dark</button><button id="signout" type="button" hidden>Sign out</button></header>
 <nav class="tabs" id="tabs" hidden role="tablist">
-<button data-tab="overview" aria-selected="true">Overview</button><button data-tab="customers">Customers</button>
+<button data-tab="overview" aria-selected="true">Overview</button><button data-tab="support">Support <span id="support-count"></span></button><button data-tab="customers">Customers</button>
 <button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button>
 </nav>
 <main>
@@ -88,6 +102,27 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:v
 <section data-panel="flags" hidden>
 <div class="card row"><label class="small soft">Show <select id="flag-state"><option value="open">Open</option><option value="resolved">Resolved</option><option value="all">All</option></select></label></div>
 <div id="flag-list"></div>
+</section>
+
+<section data-panel="support" hidden>
+<div class="card row"><label class="small soft">Show <select id="support-state"><option value="open">Open</option><option value="awaiting_admin">Awaiting admin</option><option value="in_progress">In progress</option><option value="awaiting_customer">Awaiting customer</option><option value="resolved">Resolved</option><option value="all">All</option></select></label>
+<span class="small soft" style="flex:1">Highest priority first; overdue first; then the longest waiting. Answer or acknowledge within 5 minutes.</span><button type="button" id="support-refresh">Refresh</button></div>
+<div class="card scroll"><table><thead><tr><th>Priority</th><th>Request</th><th>State</th><th>Waiting</th><th>From</th><th>About</th></tr></thead><tbody id="support-rows"></tbody></table></div>
+<div class="card" id="failed-card" hidden><h2>Emails and alerts not sent</h2><p class="small soft">Tried 5 times over about 80 minutes. The message itself is saved on its request.</p><div class="scroll"><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody id="failed-rows"></tbody></table></div></div>
+</section>
+
+<section data-panel="ticket" hidden>
+<div class="row" style="margin-bottom:12px"><button id="ticket-back" type="button">← Support</button></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><h2 id="ticket-title" style="margin:0;flex:1"></h2><span id="ticket-state" class="tag"></span></div>
+<dl class="facts" id="ticket-facts"></dl>
+<div class="row" style="margin-top:12px"><label class="small soft">Priority <select id="ticket-priority"><option value="highest">Highest</option><option value="high">High</option><option value="normal">Normal</option><option value="lower">Lower</option></select></label>
+<span style="flex:1"></span><button id="ticket-ack" type="button" class="primary">Acknowledge</button><button id="ticket-progress" type="button">In progress</button><button id="ticket-resolve" type="button">Resolve</button></div>
+<div id="ticket-msg"></div></div>
+<div class="card"><h2>Conversation</h2><div class="thread" id="ticket-thread"></div></div>
+<form class="card" id="ticket-reply"><h2>Reply</h2><textarea id="ticket-text" maxlength="4000" placeholder="To the customer (emailed), or an internal note (never shown to them)"></textarea>
+<div class="row" style="margin-top:8px"><input id="ticket-files" type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple style="flex:1"><button type="button" id="ticket-note">Add internal note</button><button class="primary" id="ticket-send">Send to customer</button></div>
+<div id="ticket-reply-msg"></div></form>
+<div class="card scroll"><h2>Emails and alerts for this request</h2><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Status</th></tr></thead><tbody id="ticket-outbox"></tbody></table></div>
 </section>
 
 <section data-panel="referrals" hidden>
@@ -137,7 +172,7 @@ async function start(){
   try{me=await api('/api/me')}catch{only('unavailable');return}
   if(!me.signedIn){only('signin');return}
   $('who').textContent=me.email??'';$('signout').hidden=false;
-  try{const o=await api('/api/admin/overview');only(null);show('overview',o)}
+  try{const o=await api('/api/admin/overview');only(null);show('overview',o);const m=/^#support\/([\w-]+)$/.exec(location.hash);if(m)openTicket(m[1])}
   catch(e){
     if(e.code==='reauth'){$('signin-why').textContent='For the admin hub, sign in again (admin sign-ins last 12 hours).';$('email').value=me.email??'';only('signin')}
     else if(e.status===403)only('denied');else only('unavailable');
@@ -156,10 +191,10 @@ $('code-form').onsubmit=async e=>{
 $('signout').onclick=async()=>{await api('/api/auth/logout',{}).catch(()=>{});location.reload()};
 
 // ---- Tabs ----
-const loaders={overview:()=>api('/api/admin/overview'),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
+const loaders={overview:()=>api('/api/admin/overview'),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
-  for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')));
+  for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
   try{show(tab,await loaders[tab]())}catch(e){if(e.code==='reauth'||e.status===401)start();else alert(`Could not load: ${e.code}`)}
 }
 function show(tab,data){
@@ -180,11 +215,14 @@ function renderOverview(o){
     s(o.drives.failed30,'Drives that failed to load','30 days (session given back, up to 3 a day each)'),
     s(o.sessionsHeld.sessions,'Sessions held by customers',`plus ${o.sessionsHeld.allowances} Starter Pass drives`),
     s(o.accounts.referred,'Joined by invite link',`${o.referrals.rewarded} referrer sessions earned`),
+    s(o.support.awaitingAdmin,'Support: waiting for you',`${o.support.open} open requests`),
+    s(o.support.overdue,'Support: overdue',o.support.failedNotifications?`${o.support.failedNotifications} emails or alerts not sent`:'Not answered or acknowledged in 5 minutes'),
     s(o.flags.open,'Open flags','Waiting for a person to look')
   );
   $('stats-note').textContent=`Money in ${o.currency.toUpperCase()}, from the ledger (Stripe events as received). Accounts are sign-ups to the simulator; "paying" excludes 100% promotion codes. Updated ${when(o.at)}.`;
-  setFlagCount(o.flags.open);
+  setFlagCount(o.flags.open);setSupportCount(o.support.awaitingAdmin,o.support.overdue);
 }
+function setSupportCount(waiting,overdue){$('support-count').textContent=waiting?`(${waiting}${overdue?`, ${overdue} late`:''})`:''}
 function setFlagCount(n){$('flag-count').textContent=n?`(${n})`:''}
 
 // ---- Customers ----
@@ -281,6 +319,93 @@ function renderReferrals(r){
     el('td',{},x.email??x.id),el('td',{},x.code),el('td',{class:'num'},x.joined),el('td',{class:'num'},x.paid),el('td',{class:'num'},x.rewards))),
     ...(r.referrers.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No referrals yet.'))]));
 }
+// ---- Support ----
+const PRI={highest:'Highest',high:'High',normal:'Normal',lower:'Lower'};
+const ago=s=>{const m=Math.round((Date.now()-new Date(s).getTime())/60000);return m<60?`${m} min`:m<48*60?`${Math.round(m/60)} h`:`${Math.round(m/1440)} days`};
+$('support-state').onchange=()=>showTab('support');
+$('support-refresh').onclick=()=>showTab('support');
+async function loadSupport(){
+  const [{tickets},{items}]=await Promise.all([api(`/api/admin/support?state=${$('support-state').value}`),api('/api/admin/notifications/failed')]);
+  $('support-rows').replaceChildren(...tickets.map(t=>el('tr',{class:'link',on:{click:()=>openTicket(t.id)}},
+    el('td',{},el('span',{class:`pri ${t.priority}`},PRI[t.priority])),
+    el('td',{},t.unread?el('span',{class:'unread-dot',title:'Unread customer message'}):null,el('b',{},t.ref)),
+    el('td',{},t.stateLabel),
+    el('td',{class:t.overdue?'overdue':''},t.awaitingSince?`${ago(t.awaitingSince)}${t.overdue?' · overdue':''}`:'—'),
+    el('td',{},t.email),el('td',{},el('div',{},t.categoryLabel),el('div',{class:'small soft'},t.summary)))),
+    ...(tickets.length?[]:[el('tr',{},el('td',{colSpan:6,class:'soft'},'Nothing here.'))]));
+  $('failed-card').hidden=!items.length;
+  $('failed-rows').replaceChildren(...items.map(o=>el('tr',{},el('td',{},when(o.createdAt)),el('td',{},o.to),el('td',{},o.subject),el('td',{class:'small neg'},o.lastError??''),
+    el('td',{},el('button',{type:'button',on:{click:async e=>{e.target.disabled=true;await api(`/api/admin/notifications/${encodeURIComponent(o.id)}/retry`,{}).catch(()=>{});setTimeout(()=>showTab('support'),1500)}}},'Retry now')))));
+}
+let ticket=null;
+async function openTicket(id){
+  try{ticket=await api(`/api/admin/support/${encodeURIComponent(id)}`)}catch(e){alert(`Could not load: ${e.code}`);return}
+  history.replaceState(null,'',`#support/${id}`);
+  for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab==='support'));
+  panels.forEach(p=>p.hidden=p.dataset.panel!=='ticket');
+  renderTicket();
+}
+function renderTicket(){
+  const {ticket:t,messages,outbox}=ticket;
+  $('ticket-title').textContent=`${t.ref}: ${t.categoryLabel}`;
+  $('ticket-state').textContent=t.overdue?`${t.stateLabel} · overdue`:t.stateLabel;
+  $('ticket-state').className=`tag ${t.overdue?'overdue':''}`;
+  $('ticket-priority').value=t.priority;
+  const fact=(k,v)=>[el('dt',{},k),el('dd',{},v)];
+  $('ticket-facts').replaceChildren(
+    ...fact('Email',el('a',{href:`mailto:${t.email}?subject=${encodeURIComponent(`Your request ${t.ref}`)}`},t.email)),
+    ...fact('Phone',t.phone?el('a',{href:`tel:${t.phone}`},t.phone):'—'),
+    ...fact('Account',t.accountId?el('a',{href:'#',on:{click:e=>{e.preventDefault();openCustomer(t.accountId)}}},`${t.accountEmail??t.accountId}${t.signedIn?' (sent signed in)':' (same email; sent signed out)'}`):'No account'),
+    ...fact('Sent',when(t.createdAt)),
+    ...fact('Waiting',t.awaitingSince?`${ago(t.awaitingSince)} (answer or acknowledge by ${when(t.responseDueAt)})${t.reminders?` · ${t.reminders} reminder${t.reminders===1?'':'s'} sent`:''}`:'Not waiting for you'));
+  $('ticket-ack').hidden=!t.awaitingSince;
+  $('ticket-progress').hidden=t.state==='in_progress';
+  $('ticket-resolve').hidden=t.state==='resolved';
+  const shot=a=>el('a',{href:`/api/support/attachments/${encodeURIComponent(a)}`,target:'_blank',rel:'noopener'},el('img',{src:`/api/support/attachments/${encodeURIComponent(a)}`,alt:'Screenshot',loading:'lazy'}));
+  $('ticket-thread').replaceChildren(...messages.map(m=>m.from==='event'?el('div',{class:'bubble event'},`${when(m.createdAt)} · ${m.text} (${m.by})`):
+    el('div',{class:`bubble ${m.from}`},el('div',{class:'who'},`${m.from==='customer'?t.email:m.from==='note'?`Internal note · ${m.by}`:`Reply · ${m.by}`} · ${when(m.createdAt)}`),
+      el('p',{},m.text),m.attachments.length?el('div',{class:'shots'},...m.attachments.map(shot)):null)));
+  $('ticket-outbox').replaceChildren(...outbox.map(o=>el('tr',{},el('td',{},when(o.createdAt)),el('td',{},o.to),el('td',{},o.subject),
+    el('td',{class:o.status==='failed'?'neg':o.status==='sent'?'pos':''},o.status==='pending'&&o.attempts?`retrying (${o.attempts} tries): ${o.lastError??''}`:o.status))));
+}
+const ticketAction=async(path,body,okText)=>{
+  try{await api(`/api/admin/support/${encodeURIComponent(ticket.ticket.id)}/${path}`,body);msg($('ticket-msg'),okText,'ok');await openTicket(ticket.ticket.id)}
+  catch(e){msg($('ticket-msg'),`Not saved: ${e.code}`,'bad')}
+};
+$('ticket-back').onclick=()=>{history.replaceState(null,'',location.pathname);showTab('support')};
+$('ticket-ack').onclick=()=>ticketAction('acknowledge',{},'Acknowledged: the timer is stopped.');
+$('ticket-progress').onclick=()=>ticketAction('state',{state:'in_progress'},'Marked in progress.');
+$('ticket-resolve').onclick=()=>{if(confirm('Mark resolved? The customer is emailed; a reply from them reopens it.'))ticketAction('state',{state:'resolved'},'Resolved.')};
+$('ticket-priority').onchange=e=>ticketAction('priority',{priority:e.target.value},'Priority changed.');
+async function adminUpload(input,box){
+  const files=[...input.files];
+  if(files.length>5){msg(box,'Up to 5 screenshots.','bad');return null}
+  const out=[];
+  for(const f of files){
+    const res=await fetch('/api/support/attachments',{method:'POST',credentials:'same-origin',headers:{'Content-Type':f.type||'application/octet-stream'},body:f});
+    if(!res.ok){msg(box,`${f.name}: ${res.status===415?'not a JPEG, PNG, WebP or HEIC image':res.status===413?'over 10 MB':'upload failed'}`,'bad');return null}
+    out.push(await res.json());
+  }
+  return out;
+}
+async function sendTicketMessage(internal){
+  const box=$('ticket-reply-msg'),text=$('ticket-text').value.trim();
+  if(!text){msg(box,'Write something first.','bad');return}
+  if(!internal&&!confirm(`Email this reply to ${ticket.ticket.email}?`))return;
+  for(const b of [$('ticket-note'),$('ticket-send')])b.disabled=true;
+  try{
+    const attachments=await adminUpload($('ticket-files'),box);
+    if(!attachments)return;
+    await api(`/api/admin/support/${encodeURIComponent(ticket.ticket.id)}/messages`,{text,internal,attachments});
+    $('ticket-reply').reset();msg(box,internal?'Note added.':'Sent to the customer.','ok');
+    await openTicket(ticket.ticket.id);
+  }catch(e){msg(box,`Not sent: ${e.code}`,'bad')}
+  finally{for(const b of [$('ticket-note'),$('ticket-send')])b.disabled=false}
+}
+$('ticket-reply').onsubmit=e=>{e.preventDefault();sendTicketMessage(false)};
+$('ticket-note').onclick=()=>sendTicketMessage(true);
+// The queue refreshes itself while it is on screen.
+setInterval(()=>{if(!document.hidden&&!document.querySelector('[data-panel=support]').hidden)loadSupport().catch(()=>{})},30_000);
 start();
 </script>
 </body></html>

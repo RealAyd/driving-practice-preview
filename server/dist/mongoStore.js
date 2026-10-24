@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient, MongoServerError } from 'mongodb';
+import { MongoSupportStore } from './mongoSupportStore.js';
 const out = (d) => {
     if (!d)
         return null;
@@ -12,14 +13,17 @@ const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** The hosted store: one database (e.g. dp_sim_staging), its own collections and indexes. */
 export class MongoStore {
     db;
+    support;
     constructor(db) {
         this.db = db;
+        this.support = new MongoSupportStore(db);
     }
     static async connect(uri) {
         const client = new MongoClient(uri);
         await client.connect();
         const store = new MongoStore(client.db());
         await store.indexes();
+        await store.support.indexes();
         return store;
     }
     get accounts() { return this.db.collection('accounts'); }

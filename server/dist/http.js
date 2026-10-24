@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Admin } from './admin.js';
+import { MAX_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from './support.js';
 /** Signed-in cookie: account id and expiry, signed with SESSION_SECRET. HttpOnly; Secure when served over HTTPS. */
 const COOKIE = 'dp_session', COOKIE_DAYS = 60;
 /** The admin hub needs a sign-in from the last this many hours (the learner's cookie lasts COOKIE_DAYS). */
@@ -69,6 +70,9 @@ const str = (v, max = 500) => typeof v === 'string' && v.length <= max ? v : nul
 export function handler(service, outbox) {
     const { config } = service;
     const admin = new Admin(config, service.store);
+    const { support } = service;
+    /** An admin signed in recently enough for the hub (null otherwise). */
+    const hubAdmin = async (session) => session && Date.now() - session.signedInAt <= ADMIN_SIGNIN_HOURS * 3600_000 ? admin.adminEmail(session.accountId) : null;
     const secure = config.appBaseUrl.startsWith('https://');
     const origin = new URL(config.appBaseUrl).origin;
     const setSession = (res, accountId) => res.setHeader('Set-Cookie', `${COOKIE}=${accountId ? sign(config.sessionSecret, accountId) : ''}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${accountId ? COOKIE_DAYS * 86400 : 0}`);
@@ -170,6 +174,43 @@ export function handler(service, outbox) {
                 const r = await service.stripeWebhook(raw, String(req.headers['stripe-signature'] ?? ''));
                 return send(res, r === 'ok' ? 200 : 400, { received: r === 'ok' });
             }
+            // ---- Support (/support.html): signed in, or signed out with the link from the customer's email ----
+            if (method === 'GET' && path === '/api/support/config')
+                return send(res, 200, { categories: support.categories(), maxScreenshots: MAX_SCREENSHOTS, maxScreenshotBytes: MAX_SCREENSHOT_BYTES });
+            if (method === 'POST' && path === '/api/support/attachments') {
+                // (Raw image bytes: only from this site's own pages.)
+                if (req.headers.origin !== origin)
+                    throw new HttpError(403, 'cross-site');
+                const r = await support.upload(await body(req, MAX_SCREENSHOT_BYTES + 1).catch(e => { if (e instanceof HttpError && e.status === 413)
+                    throw new HttpError(413, 'size'); throw e; }), ipOf(req));
+                return 'error' in r ? send(res, r.error === 'slow-down' ? 429 : r.error === 'size' ? 413 : 415, r) : send(res, 200, r);
+            }
+            if (method === 'POST' && path === '/api/support/tickets') {
+                const r = await support.create(await json(req), { accountId, ip: ipOf(req) });
+                return 'error' in r ? send(res, r.error === 'slow-down' ? 429 : 400, r) : send(res, 200, r);
+            }
+            if (method === 'GET' && path === '/api/support/tickets')
+                return send(res, 200, { tickets: await support.mine(signedIn()) });
+            const mine = /^\/api\/support\/tickets\/([\w-]{8,64})(\/messages)?$/.exec(path);
+            if (mine && method === 'GET' && !mine[2]) {
+                const t = await support.customerView(mine[1], { accountId, token: url.searchParams.get('t') });
+                return t ? send(res, 200, t) : send(res, 404, { error: 'not-found' });
+            }
+            if (mine && method === 'POST' && mine[2]) {
+                const b = await json(req);
+                const r = await support.customerReply(mine[1], { accountId, token: str(b['t'], 100) }, b);
+                return 'error' in r ? send(res, r.error === 'not-found' ? 404 : r.error === 'slow-down' ? 429 : 400, r) : send(res, 200, r);
+            }
+            const shot = /^\/api\/support\/attachments\/([\w-]{8,64})$/.exec(path);
+            if (shot && method === 'GET') {
+                const a = await support.attachment(shot[1], { accountId, token: url.searchParams.get('t'), admin: !!await hubAdmin(session) });
+                if (!a)
+                    return send(res, 404, { error: 'not-found' });
+                // Served as the image it was checked to be, never as a page.
+                res.writeHead(200, { 'Content-Type': a.type, 'Content-Length': a.size, 'Content-Disposition': `inline; filename="screenshot.${a.type.split('/')[1]}"`,
+                    'Cache-Control': 'private, no-store', 'Content-Security-Policy': "default-src 'none'; sandbox" });
+                return res.end(a.data);
+            }
             // ---- The admin hub (/admin.html): ADMIN_EMAILS only, signed in within the last ADMIN_SIGNIN_HOURS ----
             if (path.startsWith('/api/admin/')) {
                 const by = await admin.adminEmail(signedIn());
@@ -182,7 +223,29 @@ export function handler(service, outbox) {
                     throw new HttpError(403, 'cross-site');
                 res.setHeader('X-Robots-Tag', 'noindex');
                 if (method === 'GET' && path === '/api/admin/overview')
-                    return send(res, 200, await admin.overview());
+                    return send(res, 200, { ...await admin.overview(), support: await support.counts() });
+                // Support: the queue, a request, and what an admin can do with it.
+                if (method === 'GET' && path === '/api/admin/support')
+                    return send(res, 200, await support.queue(url.searchParams.get('state') ?? 'open'));
+                const ticket = /^\/api\/admin\/support\/([\w-]{8,64})(?:\/(acknowledge|messages|state|priority))?$/.exec(path);
+                if (ticket && method === 'GET' && !ticket[2]) {
+                    const t = await support.adminView(ticket[1]);
+                    return t ? send(res, 200, t) : send(res, 404, { error: 'not-found' });
+                }
+                if (ticket && method === 'POST' && ticket[2]) {
+                    const id = ticket[1], b = await json(req);
+                    if (ticket[2] === 'messages') {
+                        const r = await support.adminMessage(id, by, b);
+                        return 'error' in r ? send(res, r.error === 'not-found' ? 404 : 400, r) : send(res, 200, r);
+                    }
+                    const ok = ticket[2] === 'acknowledge' ? await support.acknowledge(id, by) : ticket[2] === 'state' ? await support.setState(id, by, b['state']) : await support.setPriority(id, by, b['priority']);
+                    return send(res, ok ? 200 : 400, { ok });
+                }
+                if (method === 'GET' && path === '/api/admin/notifications/failed')
+                    return send(res, 200, await support.failedNotifications());
+                const retry = /^\/api\/admin\/notifications\/([\w-]{8,64})\/retry$/.exec(path);
+                if (retry && method === 'POST')
+                    return send(res, await support.retry(retry[1]) ? 200 : 404, {});
                 if (method === 'GET' && path === '/api/admin/customers')
                     return send(res, 200, await admin.customers(url.searchParams.get('q') ?? ''));
                 const customer = /^\/api\/admin\/customers\/([\w-]{8,64})(\/adjust)?$/.exec(path);
@@ -219,7 +282,7 @@ export function handler(service, outbox) {
             // ---- Local development and tests only ----
             if (config.devFakes && outbox) {
                 if (method === 'GET' && path === '/api/dev/outbox')
-                    return send(res, 200, outbox.sent.slice(-5));
+                    return send(res, 200, outbox.sent.slice(-20));
                 // A pretend Payment Link checkout for the signed-in account, delivered as Stripe would.
                 if (method === 'POST' && path === '/api/dev/checkout') {
                     const id = signedIn(), b = await json(req);

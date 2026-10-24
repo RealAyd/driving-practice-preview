@@ -27,6 +27,9 @@ export function loadConfig(env = process.env) {
         emailReplyTo: env['EMAIL_REPLY_TO'] ?? 'support.drivingpractice@gmail.com',
         googleClientId: env['GOOGLE_CLIENT_ID'] || null,
         appleServicesId: env['APPLE_SERVICES_ID'] || null,
+        supportInbox: env['SUPPORT_INBOX'] ?? env['EMAIL_REPLY_TO'] ?? 'support.drivingpractice@gmail.com',
+        supportPushUrl: env['SUPPORT_PUSH_URL'] || null,
+        supportReminderMinutes: Math.max(5, Number(env['SUPPORT_REMINDER_MINUTES'] ?? 30) || 30),
         adminEmails: (env['ADMIN_EMAILS'] ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
         // (Local fakes: each pack gets a placeholder link so a pretend checkout can name it.)
         packs: JSON.parse(readFileSync(packsFile, 'utf8')).packs

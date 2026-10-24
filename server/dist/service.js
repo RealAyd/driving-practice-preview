@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { Support } from './support.js';
 /** What a drive is, from its scenario id (the browser's own description of it is not trusted). */
 export function modeOf(scenario) {
     return scenario.endsWith('-mock-test') ? 'test' : scenario.endsWith('-lesson') ? 'lesson' : 'free';
@@ -18,7 +19,7 @@ export function emailKey(email) {
     const gmail = domain === 'gmail.com' || domain === 'googlemail.com';
     return `${gmail ? base.replace(/\./g, '') : base}@${gmail ? 'gmail.com' : domain}`;
 }
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** A sign-in code lasts this long; this many wrong guesses end it. */
 const CODE_MINUTES = 15, CODE_ATTEMPTS = 5;
 /** Partial refunds below this, in all on one payment, leave the sessions as they are without review (£5). */
@@ -31,12 +32,15 @@ export class Service {
     mail;
     ids;
     stripe;
-    constructor(config, store, mail, ids, stripe) {
+    /** Support requests (tickets, the response timer, the notification outbox). */
+    support;
+    constructor(config, store, mail, ids, stripe, pusher = null) {
         this.config = config;
         this.store = store;
         this.mail = mail;
         this.ids = ids;
         this.stripe = stripe;
+        this.support = new Support(config, store, mail, pusher);
     }
     // ---- Accounts and referrals ----
     /**

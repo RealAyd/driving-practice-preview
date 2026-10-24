@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { MemorySupportStore } from './supportStore.js';
 export class MemoryStore {
+    support = new MemorySupportStore();
     accounts = new Map();
     entries = [];
     drives = new Map();
