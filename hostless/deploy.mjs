@@ -20,11 +20,19 @@ async function publicOrigin(){
 const events=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','charge.refunded','charge.dispute.created'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
-// Never print API response bodies: validation errors can echo credential values.
+// Values that must never be printed: the secrets passed in, and those generated here (added as they are made).
+const sensitive=new Set(['HOSTLESS_TOKEN','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','RESEND_API_KEY'].map(k=>process.env[k]).filter(v=>v&&v.length>=8));
+/** An API error message with every known secret, and anything shaped like a credential or connection string, masked. */
+function redact(text){
+  let t=String(text);
+  for(const v of sensitive)t=t.split(v).join('***');
+  return t.replace(/\b(sk|rk|pk|whsec|re|hlk)_[A-Za-z0-9_]{6,}/g,'***').replace(/mongodb(\+srv)?:\/\/\S+/g,'mongodb://***').replace(/[A-Za-z0-9+\/=_-]{32,}/g,'***').slice(0,600);
+}
 async function hostless(path,method='GET',body){
   const r=await fetch('https://api.hostless.cloud/v1'+path,{method,headers:{Authorization:`Bearer ${process.env.HOSTLESS_TOKEN}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
   if(r.status===404&&method==='GET')return null;
-  if(!r.ok)throw new Error(`Hostless ${method} ${path.split('?')[0]}: HTTP ${r.status}`);
+  // (The error text is shown redacted: validation errors name the field at fault, and could echo a value.)
+  if(!r.ok)throw new Error(`Hostless ${method} ${path.split('?')[0]}: HTTP ${r.status}: ${redact(await r.text().catch(()=>''))}`);
   return r.status===204?null:r.json();
 }
 async function stripe(path,method='GET',body){
@@ -52,6 +60,7 @@ async function main(){
     events.forEach(e=>form.append('enabled_events[]',e));
     const endpoint=await stripe('/webhook_endpoints','POST',form);
     if(endpoint.livemode||!endpoint.secret)throw new Error('Stripe did not create a TEST webhook with a signing secret');
+    sensitive.add(endpoint.secret);
     webhookSecret=endpoint.secret;
     console.log(`Created TEST webhook: ${webhookUrl}`);
   }
@@ -86,9 +95,10 @@ async function main(){
     try{await check.connect();await check.db().command({ping:1})}
     catch{throw new Error('Scoped staging MongoDB credential verification failed; credentials suppressed')}
     finally{await check.close()}
+    sensitive.add(scoped.toString());sensitive.add(password);
     updates.set('MONGODB_URI',scoped.toString());
   }
-  if(!names.has('SESSION_SECRET'))updates.set('SESSION_SECRET',randomBytes(48).toString('base64'));
+  if(!names.has('SESSION_SECRET')){const s=randomBytes(48).toString('base64');sensitive.add(s);updates.set('SESSION_SECRET',s)}
   for(const key of ['STRIPE_SECRET_KEY','RESEND_API_KEY','GOOGLE_CLIENT_ID','APPLE_SERVICES_ID'])if(process.env[key])updates.set(key,process.env[key]);
   for(const [key,value] of Object.entries({NODE_ENV:'production',APP_BASE_URL:appBaseUrl,EMAIL_FROM:'Driving Practice <support@drivingpractice.live>',EMAIL_REPLY_TO:'support.drivingpractice@gmail.com',ADMIN_EMAILS:'dosumuaybamo1@gmail.com'}))updates.set(key,value);
   const environmentVariables=[...vars.filter(v=>!updates.has(v.name)).map(v=>({name:v.name,keepExistingValue:true})),...[...updates].map(([name,value])=>({name,value}))];
