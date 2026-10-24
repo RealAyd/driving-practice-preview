@@ -96,7 +96,7 @@ async function main(){
         const body=await config.json();
         if(body.devCheckout===true||body.gate!==true||body.appleRedirect!==`${appBaseUrl}/api/auth/apple/callback`||!Array.isArray(body.packs))throw new Error('Unexpected production API configuration');
         const packs=require('../source/server/packs.json').packs;
-        if(body.packs.length!==packs.length||body.packs.some(p=>!packs.some(expected=>expected.id===p.id&&expected.links.live===p.url)))throw new Error('Production packs do not match live links');
+        if(body.packs.length!==packs.length||body.packs.some(p=>p.onSale!==true||!packs.some(expected=>expected.id===p.id&&expected.price===p.price&&expected.sessions===p.sessions)))throw new Error('Production packs are unavailable or do not match the built configuration');
         console.log(`Verified source commit ${local.commit}, access gate, health and API config (${body.packs.length} packs).`);
         return;
       }
