@@ -105,7 +105,8 @@ async function main(){
   if(!existing){
     await hostless('/apps','POST',{name:app,projectId,gitPlatform:'Github',gitRepo:'RealAyd/driving-practice-preview',gitBranch:'hostless-staging-release',gitCommitHash:process.env.RELEASE_COMMIT,containerPort:8000,dockerFilePath:'Dockerfile',buildSystem:'docker',autoDeployOnPush:false,environmentVariables});
   }else{
-    await hostless(`/apps/${app}?deploy=false`,'PATCH',{gitBranch:'hostless-staging-release',gitCommitHash:process.env.RELEASE_COMMIT,autoDeployOnPush:false,environmentVariables});
+    // (The app's settings take no commit: the deployment below names the release commit.)
+    await hostless(`/apps/${app}?deploy=false`,'PATCH',{gitBranch:'hostless-staging-release',autoDeployOnPush:false,environmentVariables});
     await hostless(`/apps/${app}/deployments/new`,'POST',{gitCommitHash:process.env.RELEASE_COMMIT});
   }
   console.log('Configured environment variable names: '+environmentVariables.map(v=>v.name).sort().join(', '));
