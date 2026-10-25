@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en-GB"><head><meta charset="utf-8"><script src="theme.js"></script><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
 <title>Help and support · Driving Practice</title><style>
 :root{color-scheme:light;--ink:#0f172a;--soft:#475569;--faint:#64748b;--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--accent:#0f766e;--accent-ink:#fff;--bad:#b91c1c;--good:#15803d;--chip:#f1f5f9;--mine:#ecfdf5;--theirs:#f8fafc}
@@ -76,7 +76,6 @@ p:empty{display:none}
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-try{const t=localStorage.getItem('dp.theme.v1');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}
 function el(tag,props={},...kids){
   const e=document.createElement(tag);
   for(const [k,v] of Object.entries(props)){if(k==='class')e.className=v;else if(k==='on')for(const [ev,f] of Object.entries(v))e.addEventListener(ev,f);else if(k in e)e[k]=v;else e.setAttribute(k,v)}
