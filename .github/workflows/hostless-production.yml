@@ -109,5 +109,6 @@ jobs:
         env:
           HOSTLESS_TOKEN: ${{ secrets.HOSTLESS_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || '683997440834-9m0o1lh1m12ulbje8hbg0ntj8gsin2un.apps.googleusercontent.com' }}
           RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
         run: node hostless/deploy-production.mjs
