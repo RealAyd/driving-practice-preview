@@ -69,7 +69,7 @@ async function main(){
     updates.set('MONGODB_URI',scoped.toString());
   }
   if(!names.has('SESSION_SECRET')){const s=randomBytes(48).toString('base64');sensitive.add(s);updates.set('SESSION_SECRET',s)}
-  for(const key of ['RESEND_API_KEY'])if(process.env[key])updates.set(key,process.env[key]);
+  for(const key of ['RESEND_API_KEY','GOOGLE_CLIENT_ID'])if(process.env[key])updates.set(key,process.env[key]);
   for(const [key,value] of Object.entries({NODE_ENV:'production',APP_BASE_URL:appBaseUrl,EMAIL_FROM:'Driving Practice <support@drivingpractice.live>',EMAIL_REPLY_TO:'support.drivingpractice@gmail.com',ADMIN_EMAILS:'dosumuaybamo1@gmail.com'}))updates.set(key,value);
   const environmentVariables=[...vars.filter(v=>!updates.has(v.name)).map(v=>({name:v.name,keepExistingValue:true})),...[...updates].map(([name,value])=>({name,value}))];
   if(!existing){
