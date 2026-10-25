@@ -174,8 +174,7 @@ async function start(){
   $('who').textContent=me.email??'';$('signout').hidden=false;
   try{const o=await api('/api/admin/overview');only(null);show('overview',o);const m=/^#support\/([\w-]+)$/.exec(location.hash);if(m)openTicket(m[1])}
   catch(e){
-    if(e.code==='reauth'){$('signin-why').textContent='For the admin hub, sign in again (admin sign-ins last 12 hours).';$('email').value=me.email??'';only('signin')}
-    else if(e.status===403)only('denied');else only('unavailable');
+    if(e.status===403)only('denied');else only('unavailable');
   }
 }
 $('email-form').onsubmit=async e=>{
@@ -195,7 +194,7 @@ const loaders={overview:()=>api('/api/admin/overview'),support:()=>loadSupport()
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
   for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
-  try{show(tab,await loaders[tab]())}catch(e){if(e.code==='reauth'||e.status===401)start();else alert(`Could not load: ${e.code}`)}
+  try{show(tab,await loaders[tab]())}catch(e){if(e.status===401)start();else alert(`Could not load: ${e.code}`)}
 }
 function show(tab,data){
   panels.forEach(p=>p.hidden=p.dataset.panel!==tab);

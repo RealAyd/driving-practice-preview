@@ -1,3 +1,4 @@
+import { isAdminEmail } from './service.js';
 /** What counts as money in or out on the Payments tab. */
 const MONEY_TYPES = ['purchase', 'promo', 'refund', 'starter_duplicate'];
 const POTS = ['lesson', 'test', 'free'];
@@ -31,7 +32,7 @@ export class Admin {
     /** The admin's email, or null if this account is not an admin. */
     async adminEmail(accountId) {
         const a = await this.store.findAccount({ id: accountId });
-        return a?.email && this.config.adminEmails.includes(a.email) ? a.email : null;
+        return a?.email && isAdminEmail(this.config, a.email) ? a.email : null;
     }
     async overview(now = new Date()) {
         const d7 = new Date(now.getTime() - 7 * DAY), d30 = new Date(now.getTime() - 30 * DAY);
