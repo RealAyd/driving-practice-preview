@@ -26,6 +26,8 @@ const CODE_MINUTES = 15, CODE_ATTEMPTS = 5;
 const SMALL_PARTIAL_REFUND_PENCE = 500;
 /** A drive that fails to load within this long of starting gives its session back; at most this many a day. */
 const REFUND_WINDOW_MS = 15 * 60_000, REFUNDS_PER_DAY = 3;
+/** New free tries from one address in a day (a device's try is in its cookie; this stops clearing it for more). */
+const TRIALS_PER_IP_PER_DAY = 4;
 export class Service {
     config;
     store;
@@ -158,6 +160,12 @@ export class Service {
         if (!SCENARIO.test(scenario))
             return { ok: false, reason: 'no-sessions' };
         const mode = modeOf(scenario);
+        // The admins (ADMIN_EMAILS) drive without using sessions: recorded as a drive, nothing taken.
+        const account = await this.store.findAccount({ id: accountId });
+        if (account?.email && this.config.adminEmails.includes(account.email)) {
+            const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'admin', startedAt: new Date(), status: 'started' });
+            return { ok: true, drive, balance: account.balance };
+        }
         const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'sessions', startedAt: new Date(), status: 'started' });
         const take = (pot) => this.store.appendLedger({ product: 'simulator', accountId, type: 'consumed', sessionsDelta: -1, ...(pot ? { pot } : {}), amountPence: 0, currency: 'gbp', actor: 'customer',
             reason: `${kind}: ${scenario}`, idempotencyKey: `drive:${drive.id}` }, { requireBalance: true });
@@ -173,12 +181,43 @@ export class Service {
         await this.store.updateDrive(drive.id, { paidFrom });
         return { ok: true, drive: { ...drive, paidFrom }, balance: (await this.store.findAccount({ id: accountId })).balance };
     }
+    // ---- The free try (no sign-up): one lesson, one mock test and one free drive per device ----
+    /** What is left of a device's free try (all of it before the first drive). */
+    async trialLeft(trialId) {
+        const t = trialId ? await this.store.getTrial(trialId) : null;
+        return t ? { ...t.remaining } : { lesson: 1, test: 1, free: 1 };
+    }
+    /**
+     * A drive on the device's free try: the try is made on the first drive (rate-limited by address), then each kind
+     * can be used once. Returns the try's id (for the device's cookie) with the outcome.
+     */
+    async startTrialDrive(trialId, ip, kind, scenario) {
+        if (!SCENARIO.test(scenario))
+            return { trialId, start: { ok: false, reason: 'trial-used' } };
+        let trial = trialId ? await this.store.getTrial(trialId) : null;
+        if (!trial) {
+            if (!await this.store.rateHit(`trial-ip:${ip}`, 24 * 3600_000, TRIALS_PER_IP_PER_DAY))
+                return { trialId: null, start: { ok: false, reason: 'slow-down' } };
+            trial = await this.store.createTrial();
+        }
+        const mode = modeOf(scenario);
+        if (!await this.store.moveTrial(trial.id, mode, -1))
+            return { trialId: trial.id, start: { ok: false, reason: 'trial-used' } };
+        const drive = await this.store.createDrive({ accountId: `trial:${trial.id}`, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'trial', startedAt: new Date(), status: 'started' });
+        return { trialId: trial.id, start: { ok: true, drive, balance: 0 } };
+    }
     /** The app reports how the drive went; one that failed to load gives its session back. */
     async driveStatus(accountId, driveId, status) {
         const d = await this.store.getDrive(driveId);
         if (!d || d.accountId !== accountId || d.status === 'unpaid')
             return false;
-        if (status === 'failed' && d.status === 'started' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
+        if (status === 'failed' && d.status === 'started' && d.paidFrom !== 'admin' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
+            // A free try's drive goes back to the try (once).
+            if (d.paidFrom === 'trial') {
+                await this.store.updateDrive(driveId, { status, refunded: true });
+                await this.store.moveTrial(accountId.slice(6), d.mode, 1);
+                return true;
+            }
             const today = await this.store.countDrives({ accountId, since: new Date(Date.now() - 24 * 3600_000), refunded: true });
             if (today >= REFUNDS_PER_DAY) {
                 await this.store.flag('drive-refunds', { account: accountId, drive: driveId });

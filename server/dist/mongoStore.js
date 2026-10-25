@@ -32,6 +32,7 @@ export class MongoStore {
     get codes() { return this.db.collection('login_codes'); }
     get rates() { return this.db.collection('rate_limits'); }
     get flagged() { return this.db.collection('flags'); }
+    get trialDocs() { return this.db.collection('trials'); }
     async indexes() {
         // Sparse: an Apple account without an email, or accounts without a provider, do not collide.
         await this.accounts.createIndex({ email: 1 }, { unique: true, sparse: true });
@@ -199,6 +200,17 @@ export class MongoStore {
         return this.accounts.aggregate([{ $match: { referredBy: { $exists: true } } },
             { $group: { _id: '$referredBy', joined: { $sum: 1 }, paid: { $sum: { $cond: [{ $ifNull: ['$firstPaidAt', false] }, 1, 0] } } } },
             { $sort: { joined: -1 } }, { $limit: 500 }, { $project: { _id: 0, referrerId: '$_id', joined: 1, paid: 1 } }]).toArray();
+    }
+    async createTrial() {
+        const doc = { _id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() };
+        await this.trialDocs.insertOne(doc);
+        return out(doc);
+    }
+    async getTrial(id) { return out(await this.trialDocs.findOne({ _id: id })); }
+    async moveTrial(id, mode, delta) {
+        // (Atomic: two drives started at once cannot both use the last one.)
+        const r = await this.trialDocs.updateOne({ _id: id, ...(delta < 0 ? { [`remaining.${mode}`]: { $gte: 1 } } : {}) }, { $inc: { [`remaining.${mode}`]: delta } });
+        return r.modifiedCount === 1;
     }
     async driveCounts(since) {
         const rows = await this.drives.aggregate([{ $match: { startedAt: { $gte: since }, status: { $ne: 'unpaid' } } },

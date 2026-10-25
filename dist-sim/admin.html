@@ -52,6 +52,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:v
 .shots img{width:100%;height:100%;object-fit:cover;display:block}
 textarea{width:100%;min-height:110px;resize:vertical}
 dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:14px}dl.facts dt{color:var(--soft)}dl.facts dd{margin:0;word-break:break-word}
+p:empty{display:none}
 </style></head>
 <body>
 <header><h1>Driving Practice · Admin hub</h1><span class="who" id="who"></span>
@@ -62,13 +63,13 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 </nav>
 <main>
 <section id="signin" class="signin card" hidden>
-<h2>Sign in</h2><p class="soft small" id="signin-why">Sign in with an admin email address. You get a 6-digit code by email.</p>
+<h2>Sign in</h2><p class="soft small" id="signin-why"></p>
 <form id="email-form"><input id="email" type="email" autocomplete="email" placeholder="Email address" required><button class="primary">Send code</button></form>
 <form id="code-form" hidden><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" required><button class="primary">Sign in</button></form>
 <div id="signin-msg"></div>
 </section>
-<section id="denied" class="card" hidden><h2>Not an admin account</h2><p class="soft">This account is signed in but is not on the admin list.</p></section>
-<section id="unavailable" class="card" hidden><h2>Admin hub unavailable</h2><p class="soft">The accounts service does not answer here (this copy has no server).</p></section>
+<section id="denied" class="card" hidden><h2>Not an admin account</h2></section>
+<section id="unavailable" class="card" hidden><h2>Admin hub unavailable</h2></section>
 
 <section data-panel="overview" hidden>
 <div class="grid" id="stats"></div>
@@ -84,7 +85,6 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 <div class="row" style="margin-bottom:12px"><button id="back" type="button">← Customers</button></div>
 <div class="card" id="customer-head"></div>
 <div class="card"><h2>Adjust sessions</h2>
-<p class="soft small">Adds (or, with a minus, removes) drives, with a reason. Recorded in the ledger under your email; it cannot be edited afterwards, only corrected with another adjustment.</p>
 <form class="row" id="adjust"><input id="adjust-n" type="number" min="-50" max="50" step="1" value="1" style="width:90px" aria-label="Sessions">
 <select id="adjust-pot" aria-label="What they are for"><option value="">General sessions</option><option value="lesson">Starter: lesson</option><option value="test">Starter: mock test</option><option value="free">Starter: free drive</option></select>
 <input id="adjust-reason" maxlength="200" placeholder="Reason (shown in the ledger)" style="flex:1;min-width:200px" required><button class="primary">Record</button></form>
@@ -106,9 +106,9 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 
 <section data-panel="support" hidden>
 <div class="card row"><label class="small soft">Show <select id="support-state"><option value="open">Open</option><option value="awaiting_admin">Awaiting admin</option><option value="in_progress">In progress</option><option value="awaiting_customer">Awaiting customer</option><option value="resolved">Resolved</option><option value="all">All</option></select></label>
-<span class="small soft" style="flex:1">Highest priority first; overdue first; then the longest waiting. Answer or acknowledge within 5 minutes.</span><button type="button" id="support-refresh">Refresh</button></div>
+<span style="flex:1"></span><button type="button" id="support-refresh">Refresh</button></div>
 <div class="card scroll"><table><thead><tr><th>Priority</th><th>Request</th><th>State</th><th>Waiting</th><th>From</th><th>About</th></tr></thead><tbody id="support-rows"></tbody></table></div>
-<div class="card" id="failed-card" hidden><h2>Emails and alerts not sent</h2><p class="small soft">Tried 5 times over about 80 minutes. The message itself is saved on its request.</p><div class="scroll"><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody id="failed-rows"></tbody></table></div></div>
+<div class="card" id="failed-card" hidden><h2>Emails and alerts not sent</h2><div class="scroll"><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody id="failed-rows"></tbody></table></div></div>
 </section>
 
 <section data-panel="ticket" hidden>
