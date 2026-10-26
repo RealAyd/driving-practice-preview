@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en-GB"><head><meta charset="utf-8"><script src="theme.js"></script><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
 <title>Help and support · Driving Practice</title><style>
 :root{color-scheme:light;--ink:#0f172a;--soft:#475569;--faint:#64748b;--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--accent:#0f766e;--accent-ink:#fff;--bad:#b91c1c;--good:#15803d;--chip:#f1f5f9;--mine:#ecfdf5;--theirs:#f8fafc}
@@ -38,11 +38,12 @@ ul.requests .what span{display:block;color:var(--soft);font-size:13.5px;white-sp
 .shots img{width:100%;height:100%;object-fit:cover;display:block}
 .shots a.file{display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--soft);text-decoration:none}
 [hidden]{display:none!important}
+p:empty{display:none}
 </style></head>
 <body><main>
 <nav><a href="./">← Driving Practice</a><span class="grow"></span><a href="legal/privacy.html">Privacy</a></nav>
 <h1>Help and support</h1>
-<p class="soft" id="intro">Tell us what happened and we will reply by email, usually within a day.</p>
+<p class="soft" id="intro"></p>
 
 <section class="card" id="offline" hidden><h2>Email us</h2>
 <p>Write to <a href="mailto:support.drivingpractice@gmail.com?subject=Driving%20Practice%20help">support.drivingpractice@gmail.com</a> and we will reply by email. Say which device you use and what happened; screenshots help.</p></section>
@@ -68,14 +69,13 @@ ul.requests .what span{display:block;color:var(--soft);font-size:13.5px;white-sp
 <label for="description">What happened?</label><textarea id="description" maxlength="4000" required placeholder="What you were doing, what you expected, and what happened instead. Which phone or computer?"></textarea>
 <label for="files">Screenshots <span class="soft">(optional, up to 5, 10 MB each)</span></label><input id="files" type="file" accept="image/jpeg,image/png,image/webp,image/heic,.heic" multiple>
 <div class="trap" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off"></div>
-<div class="actions"><button class="primary" id="send">Send request</button><span class="small soft">We use these details only to answer you.</span></div>
+<div class="actions"><button class="primary" id="send">Send request</button></div>
 <div id="new-msg"></div>
 </form>
 </main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-try{const t=localStorage.getItem('dp.theme.v1');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}
 function el(tag,props={},...kids){
   const e=document.createElement(tag);
   for(const [k,v] of Object.entries(props)){if(k==='class')e.className=v;else if(k==='on')for(const [ev,f] of Object.entries(v))e.addEventListener(ev,f);else if(k in e)e[k]=v;else e.setAttribute(k,v)}

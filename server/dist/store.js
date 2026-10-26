@@ -8,6 +8,16 @@ export class MemoryStore {
     codes = new Map();
     rates = new Map();
     flagged = [];
+    trials = new Map();
+    async createTrial() { const t = { id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() }; this.trials.set(t.id, t); return { ...t, remaining: { ...t.remaining } }; }
+    async getTrial(id) { const t = this.trials.get(id); return t ? { ...t, remaining: { ...t.remaining } } : null; }
+    async moveTrial(id, mode, delta) {
+        const t = this.trials.get(id);
+        if (!t || t.remaining[mode] + delta < 0)
+            return false;
+        t.remaining[mode] += delta;
+        return true;
+    }
     async findAccount(q) {
         const [k, v] = Object.entries(q)[0];
         const a = [...this.accounts.values()].find(x => x[k] === v);

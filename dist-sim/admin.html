@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en-GB"><head><meta charset="utf-8"><script src="theme.js"></script><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>Admin hub · Driving Practice</title><style>
 :root{color-scheme:light;--ink:#0f172a;--soft:#475569;--faint:#64748b;--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--accent:#0f766e;--accent-ink:#fff;--bad:#b91c1c;--warn:#b45309;--good:#15803d;--chip:#f1f5f9}
@@ -52,6 +52,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:v
 .shots img{width:100%;height:100%;object-fit:cover;display:block}
 textarea{width:100%;min-height:110px;resize:vertical}
 dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:14px}dl.facts dt{color:var(--soft)}dl.facts dd{margin:0;word-break:break-word}
+p:empty{display:none}
 </style></head>
 <body>
 <header><h1>Driving Practice · Admin hub</h1><span class="who" id="who"></span>
@@ -62,13 +63,13 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 </nav>
 <main>
 <section id="signin" class="signin card" hidden>
-<h2>Sign in</h2><p class="soft small" id="signin-why">Sign in with an admin email address. You get a 6-digit code by email.</p>
+<h2>Sign in</h2><p class="soft small" id="signin-why"></p>
 <form id="email-form"><input id="email" type="email" autocomplete="email" placeholder="Email address" required><button class="primary">Send code</button></form>
 <form id="code-form" hidden><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" required><button class="primary">Sign in</button></form>
 <div id="signin-msg"></div>
 </section>
-<section id="denied" class="card" hidden><h2>Not an admin account</h2><p class="soft">This account is signed in but is not on the admin list.</p></section>
-<section id="unavailable" class="card" hidden><h2>Admin hub unavailable</h2><p class="soft">The accounts service does not answer here (this copy has no server).</p></section>
+<section id="denied" class="card" hidden><h2>Not an admin account</h2></section>
+<section id="unavailable" class="card" hidden><h2>Admin hub unavailable</h2></section>
 
 <section data-panel="overview" hidden>
 <div class="grid" id="stats"></div>
@@ -84,7 +85,6 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 <div class="row" style="margin-bottom:12px"><button id="back" type="button">← Customers</button></div>
 <div class="card" id="customer-head"></div>
 <div class="card"><h2>Adjust sessions</h2>
-<p class="soft small">Adds (or, with a minus, removes) drives, with a reason. Recorded in the ledger under your email; it cannot be edited afterwards, only corrected with another adjustment.</p>
 <form class="row" id="adjust"><input id="adjust-n" type="number" min="-50" max="50" step="1" value="1" style="width:90px" aria-label="Sessions">
 <select id="adjust-pot" aria-label="What they are for"><option value="">General sessions</option><option value="lesson">Starter: lesson</option><option value="test">Starter: mock test</option><option value="free">Starter: free drive</option></select>
 <input id="adjust-reason" maxlength="200" placeholder="Reason (shown in the ledger)" style="flex:1;min-width:200px" required><button class="primary">Record</button></form>
@@ -106,9 +106,9 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 
 <section data-panel="support" hidden>
 <div class="card row"><label class="small soft">Show <select id="support-state"><option value="open">Open</option><option value="awaiting_admin">Awaiting admin</option><option value="in_progress">In progress</option><option value="awaiting_customer">Awaiting customer</option><option value="resolved">Resolved</option><option value="all">All</option></select></label>
-<span class="small soft" style="flex:1">Highest priority first; overdue first; then the longest waiting. Answer or acknowledge within 5 minutes.</span><button type="button" id="support-refresh">Refresh</button></div>
+<span style="flex:1"></span><button type="button" id="support-refresh">Refresh</button></div>
 <div class="card scroll"><table><thead><tr><th>Priority</th><th>Request</th><th>State</th><th>Waiting</th><th>From</th><th>About</th></tr></thead><tbody id="support-rows"></tbody></table></div>
-<div class="card" id="failed-card" hidden><h2>Emails and alerts not sent</h2><p class="small soft">Tried 5 times over about 80 minutes. The message itself is saved on its request.</p><div class="scroll"><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody id="failed-rows"></tbody></table></div></div>
+<div class="card" id="failed-card" hidden><h2>Emails and alerts not sent</h2><div class="scroll"><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody id="failed-rows"></tbody></table></div></div>
 </section>
 
 <section data-panel="ticket" hidden>
@@ -132,10 +132,9 @@ dl.facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-// ---- Theme (shared with the app: dp.theme.v1) ----
+// ---- Theme (theme.js sets it as the page loads; the choice is shared with the app: dp.theme.v1) ----
 const THEME='dp.theme.v1';
-const applyTheme=t=>{if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;else delete document.documentElement.dataset.theme};
-try{applyTheme(localStorage.getItem(THEME))}catch{}
+const applyTheme=t=>{document.documentElement.dataset.theme=t};
 $('theme').onclick=()=>{
   const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
   const next=dark?'light':'dark';applyTheme(next);try{localStorage.setItem(THEME,next)}catch{}
@@ -174,8 +173,7 @@ async function start(){
   $('who').textContent=me.email??'';$('signout').hidden=false;
   try{const o=await api('/api/admin/overview');only(null);show('overview',o);const m=/^#support\/([\w-]+)$/.exec(location.hash);if(m)openTicket(m[1])}
   catch(e){
-    if(e.code==='reauth'){$('signin-why').textContent='For the admin hub, sign in again (admin sign-ins last 12 hours).';$('email').value=me.email??'';only('signin')}
-    else if(e.status===403)only('denied');else only('unavailable');
+    if(e.status===403)only('denied');else only('unavailable');
   }
 }
 $('email-form').onsubmit=async e=>{
@@ -195,7 +193,7 @@ const loaders={overview:()=>api('/api/admin/overview'),support:()=>loadSupport()
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
   for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
-  try{show(tab,await loaders[tab]())}catch(e){if(e.code==='reauth'||e.status===401)start();else alert(`Could not load: ${e.code}`)}
+  try{show(tab,await loaders[tab]())}catch(e){if(e.status===401)start();else alert(`Could not load: ${e.code}`)}
 }
 function show(tab,data){
   panels.forEach(p=>p.hidden=p.dataset.panel!==tab);

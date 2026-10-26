@@ -3,11 +3,11 @@ import { Admin } from './admin.js';
 import { MAX_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from './support.js';
 /** Signed-in cookie: account id and expiry, signed with SESSION_SECRET. HttpOnly; Secure when served over HTTPS. */
 const COOKIE = 'dp_session', COOKIE_DAYS = 60;
-/** The admin hub needs a sign-in from the last this many hours (the learner's cookie lasts COOKIE_DAYS). */
-export const ADMIN_SIGNIN_HOURS = 12;
+/** The device's free try (signed the same way; its id, not an account): kept a year. */
+const TRIAL_COOKIE = 'dp_trial', TRIAL_DAYS = 365;
 const b64 = (s) => Buffer.from(s).toString('base64url');
-export function sign(secret, accountId, now = Date.now()) {
-    const body = b64(JSON.stringify({ a: accountId, e: now + COOKIE_DAYS * 86400_000 }));
+export function sign(secret, accountId, now = Date.now(), days = COOKIE_DAYS) {
+    const body = b64(JSON.stringify({ a: accountId, e: now + days * 86400_000 }));
     return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
 }
 export function readSession(secret, value, now = Date.now()) {
@@ -71,11 +71,12 @@ export function handler(service, outbox) {
     const { config } = service;
     const admin = new Admin(config, service.store);
     const { support } = service;
-    /** An admin signed in recently enough for the hub (null otherwise). */
-    const hubAdmin = async (session) => session && Date.now() - session.signedInAt <= ADMIN_SIGNIN_HOURS * 3600_000 ? admin.adminEmail(session.accountId) : null;
+    /** The signed-in admin's email (null otherwise). */
+    const hubAdmin = async (session) => session ? admin.adminEmail(session.accountId) : null;
     const secure = config.appBaseUrl.startsWith('https://');
     const origin = new URL(config.appBaseUrl).origin;
     const setSession = (res, accountId) => res.setHeader('Set-Cookie', `${COOKIE}=${accountId ? sign(config.sessionSecret, accountId) : ''}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${accountId ? COOKIE_DAYS * 86400 : 0}`);
+    const setTrial = (res, trialId) => res.appendHeader('Set-Cookie', `${TRIAL_COOKIE}=${sign(config.sessionSecret, `trial:${trialId}`, Date.now(), TRIAL_DAYS)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${TRIAL_DAYS * 86400}`);
     const send = (res, status, data) => {
         res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(data));
@@ -97,6 +98,8 @@ export function handler(service, outbox) {
             const accountId = session?.accountId ?? null;
             const signedIn = () => { if (!accountId)
                 throw new HttpError(401, 'sign-in'); return accountId; };
+            const trialCookie = readSession(config.sessionSecret, cookies(req)[TRIAL_COOKIE]);
+            const trialId = trialCookie?.startsWith('trial:') ? trialCookie.slice(6) : null;
             if (method === 'GET' && path === '/api/config')
                 return send(res, 200, {
                     gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes,
@@ -106,7 +109,9 @@ export function handler(service, outbox) {
                 const me = accountId ? await service.me(accountId) : null;
                 if (accountId && !me)
                     setSession(res, null);
-                return send(res, 200, me ? { signedIn: true, ...me } : { signedIn: false });
+                // (The device's free try: what is left of it, signed in or not.)
+                const trial = await service.trialLeft(trialId);
+                return send(res, 200, me ? { signedIn: true, ...me, trial } : { signedIn: false, trial });
             }
             if (method === 'POST' && path === '/api/auth/email') {
                 const b = await json(req);
@@ -164,14 +169,29 @@ export function handler(service, outbox) {
                 const r = await service.reconcile(signedIn());
                 return send(res, 'error' in r ? (r.error === 'slow-down' ? 429 : r.error === 'not-found' ? 404 : 503) : 200, r);
             }
+            // A drive: an account's sessions; otherwise (signed out, or none left) the device's free try.
+            if (method === 'POST' && path === '/api/progress') {
+                const b = await json(req), lessons = Array.isArray(b['lessons']) ? b['lessons'].filter((l) => typeof l === 'string').slice(0, 100) : [];
+                return send(res, 200, { lessonsDone: await service.saveProgress(signedIn(), lessons) });
+            }
             if (method === 'POST' && path === '/api/drives') {
-                const id = signedIn(), b = await json(req);
-                const r = await service.startDrive(id, str(b['kind'], 40) ?? 'drive', str(b['scenario'], 80) ?? '');
-                return r.ok ? send(res, 200, { driveId: r.drive.id, balance: r.balance }) : send(res, 402, { error: r.reason });
+                const b = await json(req), kind = str(b['kind'], 40) ?? 'drive', scenario = str(b['scenario'], 80) ?? '';
+                if (accountId) {
+                    const r = await service.startDrive(accountId, kind, scenario);
+                    if (r.ok)
+                        return send(res, 200, { driveId: r.drive.id, balance: r.balance });
+                }
+                const t = await service.startTrialDrive(trialId, ipOf(req), kind, scenario);
+                if (t.trialId && t.trialId !== trialId)
+                    setTrial(res, t.trialId);
+                if (t.start.ok)
+                    return send(res, 200, { driveId: t.start.drive.id, balance: 0, trial: true });
+                return send(res, t.start.reason === 'slow-down' ? 429 : 402, { error: accountId && t.start.reason === 'trial-used' ? 'no-sessions' : t.start.reason });
             }
             const drive = /^\/api\/drives\/([\w-]{8,64})\/(loaded|failed|completed)$/.exec(path);
             if (method === 'POST' && drive) {
-                const ok = await service.driveStatus(signedIn(), drive[1], drive[2]);
+                const status = drive[2];
+                const ok = (!!accountId && await service.driveStatus(accountId, drive[1], status)) || (!!trialId && await service.driveStatus(`trial:${trialId}`, drive[1], status));
                 return send(res, ok ? 200 : 404, { ok });
             }
             if (method === 'POST' && path === '/api/stripe/webhook') {
@@ -216,13 +236,11 @@ export function handler(service, outbox) {
                     'Cache-Control': 'private, no-store', 'Content-Security-Policy': "default-src 'none'; sandbox" });
                 return res.end(a.data);
             }
-            // ---- The admin hub (/admin.html): ADMIN_EMAILS only, signed in within the last ADMIN_SIGNIN_HOURS ----
+            // ---- The admin hub (/admin.html): ADMIN_EMAILS only ----
             if (path.startsWith('/api/admin/')) {
                 const by = await admin.adminEmail(signedIn());
                 if (!by)
                     throw new HttpError(403, 'not-admin');
-                if (Date.now() - session.signedInAt > ADMIN_SIGNIN_HOURS * 3600_000)
-                    throw new HttpError(401, 'reauth');
                 // Changes come only from this site's own page (a missing Origin is refused too).
                 if (method === 'POST' && req.headers.origin !== origin)
                     throw new HttpError(403, 'cross-site');
