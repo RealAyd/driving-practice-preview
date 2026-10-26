@@ -19,6 +19,7 @@
     "@babylonjs/core": "9.31.0",
     "@babylonjs/loaders": "9.31.0",
     "jose": "^6.2.13",
+    "meshoptimizer": "0.22.0",
     "mongodb": "^7.7.0",
     "stripe": "^23.0.1",
     "zod": "4.6.7"

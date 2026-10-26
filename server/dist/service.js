@@ -28,8 +28,9 @@ const CODE_MINUTES = 15, CODE_ATTEMPTS = 5;
 const SMALL_PARTIAL_REFUND_PENCE = 500;
 /** A drive that fails to load within this long of starting gives its session back; at most this many a day. */
 const REFUND_WINDOW_MS = 15 * 60_000, REFUNDS_PER_DAY = 3;
-/** New free tries from one address in a day (a device's try is in its cookie; this stops clearing it for more). */
-const TRIALS_PER_IP_PER_DAY = 4;
+/** New free tries from one address in a day (a device's try is in its cookie; this stops clearing it for more). Many
+ * phones share one address (mobile networks, a school or office Wi-Fi), so it is well above one household's. */
+export const TRIALS_PER_IP_PER_DAY = 30;
 /** A lesson id as the app names them; at most this many kept. */
 const LESSON_ID = /^[a-z0-9-]{1,40}$/, MAX_LESSONS = 100;
 export class Service {
@@ -166,35 +167,57 @@ export class Service {
         const id = provider === 'google' ? await this.ids.google(credential) : await this.ids.apple(credential);
         return this.signIn(provider, id, ref);
     }
-    // ---- Drives: each one started uses one session ----
+    // ---- Drives: a session is used when a drive is completed (not when it starts) ----
     /**
-     * A drive of the kind its scenario is: a Starter allowance for that kind is used first, otherwise one general
-     * session. Taking it is atomic, so two drives started at once cannot both use the last one.
+     * A drive starts with a session to use (general sessions, or any Starter Pass drive left on an older account);
+     * nothing is taken until it is completed (completeDrive).
      */
     async startDrive(accountId, kind, scenario) {
         if (!SCENARIO.test(scenario))
             return { ok: false, reason: 'no-sessions' };
         const mode = modeOf(scenario);
-        // The admins (ADMIN_EMAILS) drive without using sessions: recorded as a drive, nothing taken.
         const account = await this.store.findAccount({ id: accountId });
-        if (account && isAdminEmail(this.config, account.email)) {
-            const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'admin', startedAt: new Date(), status: 'started' });
-            return { ok: true, drive, balance: account.balance };
-        }
-        const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'sessions', startedAt: new Date(), status: 'started' });
-        const take = (pot) => this.store.appendLedger({ product: 'simulator', accountId, type: 'consumed', sessionsDelta: -1, ...(pot ? { pot } : {}), amountPence: 0, currency: 'gbp', actor: 'customer',
-            reason: `${kind}: ${scenario}`, idempotencyKey: `drive:${drive.id}` }, { requireBalance: true });
-        let paidFrom = null;
-        if (await take(mode) === 'ok')
-            paidFrom = mode;
-        else if (await take(undefined) === 'ok')
-            paidFrom = 'sessions';
-        if (!paidFrom) {
-            await this.store.updateDrive(drive.id, { status: 'unpaid' });
+        if (!account)
             return { ok: false, reason: 'no-sessions' };
+        // The admins (ADMIN_EMAILS) drive without using sessions: recorded as a drive, nothing taken.
+        const admin = isAdminEmail(this.config, account.email);
+        if (!admin && account.balance <= 0 && !POTS.some(p => (account.allowances?.[p] ?? 0) > 0))
+            return { ok: false, reason: 'no-sessions' };
+        const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: admin ? 'admin' : 'sessions',
+            ...(admin ? {} : { due: true }), startedAt: new Date(), status: 'started' });
+        return { ok: true, drive, balance: account.balance };
+    }
+    /**
+     * A completed drive uses its session (once): a Starter Pass drive of its kind left on an older account first, then a
+     * general session, then any Starter Pass drive. If another drive completed meanwhile used the last one, the balance
+     * goes below zero (drives stop until topped up) and a person is told.
+     */
+    async completeDrive(d) {
+        if (!d.due)
+            return;
+        const take = (pot, requireBalance) => this.store.appendLedger({ product: 'simulator', accountId: d.accountId, type: 'consumed', sessionsDelta: -1,
+            ...(pot ? { pot } : {}), amountPence: 0, currency: 'gbp', actor: 'customer', reason: `${d.kind}: ${d.scenario}`, idempotencyKey: `drive:${d.id}` }, { requireBalance });
+        if (d.paidFrom === 'trial') {
+            await this.store.moveTrial(d.accountId.slice(6), d.mode, -1);
+            await this.store.updateDrive(d.id, { due: false });
+            return;
         }
-        await this.store.updateDrive(drive.id, { paidFrom });
-        return { ok: true, drive: { ...drive, paidFrom }, balance: (await this.store.findAccount({ id: accountId })).balance };
+        let paidFrom = null;
+        for (const pot of [d.mode, undefined, ...POTS.filter(p => p !== d.mode)]) {
+            const r = await take(pot, true);
+            if (r === 'duplicate')
+                return;
+            if (r === 'ok') {
+                paidFrom = pot ?? 'sessions';
+                break;
+            }
+        }
+        if (!paidFrom) {
+            if (await take(undefined, false) === 'ok')
+                await this.store.flag('completed-without-session', { account: d.accountId, drive: d.id });
+            paidFrom = 'sessions';
+        }
+        await this.store.updateDrive(d.id, { paidFrom, due: false });
     }
     // ---- The free try (no sign-up): one lesson, one mock test and one free drive per device ----
     /** What is left of a device's free try (all of it before the first drive). */
@@ -204,7 +227,8 @@ export class Service {
     }
     /**
      * A drive on the device's free try: the try is made on the first drive (rate-limited by address), then each kind
-     * can be used once. Returns the try's id (for the device's cookie) with the outcome.
+     * can be completed once (it is used when the drive is completed). Returns the try's id (for the device's cookie)
+     * with the outcome.
      */
     async startTrialDrive(trialId, ip, kind, scenario) {
         if (!SCENARIO.test(scenario))
@@ -216,17 +240,20 @@ export class Service {
             trial = await this.store.createTrial();
         }
         const mode = modeOf(scenario);
-        if (!await this.store.moveTrial(trial.id, mode, -1))
+        if ((trial.remaining[mode] ?? 0) <= 0)
             return { trialId: trial.id, start: { ok: false, reason: 'trial-used' } };
-        const drive = await this.store.createDrive({ accountId: `trial:${trial.id}`, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'trial', startedAt: new Date(), status: 'started' });
+        const drive = await this.store.createDrive({ accountId: `trial:${trial.id}`, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'trial', due: true, startedAt: new Date(), status: 'started' });
         return { trialId: trial.id, start: { ok: true, drive, balance: 0 } };
     }
-    /** The app reports how the drive went; one that failed to load gives its session back. */
-    async driveStatus(accountId, driveId, status) {
+    /** The app reports how the drive went: a completed one uses its session; one that failed to load used nothing. */
+    async driveStatus(accountId, driveId, status, outcome) {
         const d = await this.store.getDrive(driveId);
         if (!d || d.accountId !== accountId || d.status === 'unpaid')
             return false;
-        if (status === 'failed' && d.status === 'started' && d.paidFrom !== 'admin' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
+        if (status === 'completed' && d.status !== 'completed')
+            await this.completeDrive(d);
+        // (A drive paid at its start, before sessions were used on completion: one that fails to load gives it back.)
+        if (status === 'failed' && !d.due && d.status === 'started' && d.paidFrom !== 'admin' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
             // A free try's drive goes back to the try (once).
             if (d.paidFrom === 'trial') {
                 await this.store.updateDrive(driveId, { status, refunded: true });
@@ -244,7 +271,13 @@ export class Service {
             await this.store.updateDrive(driveId, { status, refunded: r === 'ok' || r === 'duplicate' });
             return true;
         }
-        if (d.status !== 'completed')
+        // Finished drives stay finished (a late 'loaded' does not undo one; a completed one is never made 'ended').
+        if (d.status === 'completed' || (d.status === 'ended' && status !== 'completed'))
+            return true;
+        if (status === 'completed' || status === 'ended')
+            await this.store.updateDrive(driveId, { status, endedAt: new Date(),
+                outcome: status === 'completed' ? 'completed' : outcome && outcome !== 'completed' ? outcome : 'abandoned' });
+        else
             await this.store.updateDrive(driveId, { status });
         return true;
     }
@@ -444,15 +477,16 @@ export class Service {
         const amount = Number(o['amount_total'] ?? 0), currency = String(o['currency'] ?? 'gbp');
         const pi = typeof o['payment_intent'] === 'string' ? o['payment_intent'] : undefined;
         const stripe = { event: event.id, checkoutSession: sessionId, ...(pi ? { paymentIntent: pi } : {}), ...(linkId ? { paymentLink: linkId } : {}) };
-        // The payment itself (the money, and any general sessions).
-        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: pack.sessions, amountPence: amount,
+        // A Starter Pass is once per account: a second one grants nothing (its payment is refunded).
+        const lost = pack.starter && await this.store.claimStarter(account.id, sessionId) === 'lost';
+        // The payment itself (the money, and the pack's sessions).
+        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: lost ? 0 : pack.sessions, amountPence: amount,
             currency, actor: 'stripe', stripe, reason: pack.label, idempotencyKey: `checkout:${sessionId}` });
+        if (lost) {
+            await this.duplicateStarter(account.id, sessionId, pi, amount, currency);
+            return;
+        }
         if (pack.starter) {
-            const claim = await this.store.claimStarter(account.id, sessionId);
-            if (claim === 'lost') {
-                await this.duplicateStarter(account.id, sessionId, pi, amount, currency);
-                return;
-            }
             for (const pot of POTS) {
                 const n = pack.allowances?.[pot] ?? 0;
                 if (n > 0)

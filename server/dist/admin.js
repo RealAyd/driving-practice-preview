@@ -47,7 +47,7 @@ export class Admin {
             at: now.toISOString(), currency: 'gbp',
             accounts: { total, new7, new30, paying, referred },
             money: { grossPence: gross, refundedPence: refunded, netPence: gross - refunded, payments: purchases.length, gross30Pence: recent.reduce((n, e) => n + e.amountPence, 0), payments30: recent.length },
-            drives: { started30: drives.total, lesson30: drives.lesson, test30: drives.test, free30: drives.free, failed30: drives.failed },
+            drives: { started30: drives.total, lesson30: drives.lesson, test30: drives.test, free30: drives.free, failed30: drives.failed, completed30: drives.completed, ended30: drives.ended },
             sessionsHeld: held, flags: { open: flags.length }, referrals: { rewarded: referralBonuses.length }
         };
     }
@@ -63,7 +63,7 @@ export class Admin {
         return {
             account: { ...summary(a), invited, referrer: referrer ? { id: referrer.id, email: referrer.email, code: referrer.referralCode } : null },
             ledger: ledger.map(entryOut),
-            drives: drives.filter(d => d.status !== 'unpaid').map(d => ({ id: d.id, scenario: d.scenario, kind: d.kind, mode: d.mode, status: d.status, paidFrom: d.paidFrom, refunded: !!d.refunded, startedAt: d.startedAt.toISOString() }))
+            drives: drives.filter(d => d.status !== 'unpaid').map(d => ({ id: d.id, scenario: d.scenario, kind: d.kind, mode: d.mode, status: d.status, outcome: d.outcome, paidFrom: d.paidFrom, due: !!d.due, refunded: !!d.refunded, startedAt: d.startedAt.toISOString() }))
         };
     }
     /**

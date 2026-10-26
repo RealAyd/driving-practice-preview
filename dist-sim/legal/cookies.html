@@ -16,12 +16,21 @@ table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px
 <h1>Cookies and storage</h1><p class="meta">Driving Practice · last updated <mark>[date of publication]</mark></p>
 <p class="draft"><b>Draft for review.</b> Prepared for the owner to check; not legal advice. Items <mark>highlighted like this</mark> need the owner's details or decision before launch.</p>
 
-<p>Driving Practice uses only what it needs to work. There are no advertising or analytics cookies, so we do not ask for consent to them. <mark>[Update if analytics are added.]</mark></p>
+<p>Driving Practice uses only what it needs to work, plus its own visit records (how the app is used, to improve it). There are no advertising cookies and no analytics company. <mark>[Owner to confirm: visit records rely on the UK exemption for storage used only for statistics to improve a service, with a simple way to say no (Data (Use and Access) Act 2025); check it is in force before launch, or ask for consent instead.]</mark></p>
 <h2>Cookie</h2>
 <table><tr><th>Name</th><th>Purpose</th><th>Lasts</th></tr>
 <tr><td>dp_session</td><td>Keeps you signed in (secure, not readable by scripts)</td><td>60 days, or until you sign out</td></tr></table>
 <h2>Storage on your device</h2>
-<p>Your browser's storage keeps your results, lesson progress and settings (controller layout, headset calibration, steering, text size, light or dark mode, sound, tutorials seen), an invite code you arrived with until you sign in, and a note while a payment is on its way. It stays on your device; clearing your browser's website data removes it.</p>
+<p>Your browser's storage keeps your results, lesson progress and settings (controller layout, headset calibration, steering, text size, light or dark mode, sound, tutorials seen), an invite code you arrived with until you sign in, a note while a payment is on its way, and a random id for the device used in visit records (dp-visitor). Clearing your browser's website data removes it.</p>
+<h2>Visit records</h2>
+<p>The app sends its own server which screens were shown and which buttons were pressed, where it was opened from and for how long, with the random device id. Never what you type. None are made when your browser sends Global Privacy Control or Do Not Track.</p>
+<p><button id="visits-toggle" type="button"></button> <span id="visits-state" role="status"></span></p>
+<script>
+(()=>{const b=document.getElementById('visits-toggle'),s=document.getElementById('visits-state');
+const off=()=>{try{return localStorage.getItem('dp-visits-off')==='1'}catch{return false}};
+const show=()=>{b.textContent=off()?'Turn visit records back on':'Turn off visit records on this device';s.textContent=off()?'Off on this device.':'On.'};
+b.onclick=()=>{try{if(off())localStorage.removeItem('dp-visits-off');else{localStorage.setItem('dp-visits-off','1');localStorage.removeItem('dp-visitor')}}catch{}show()};show()})();
+</script>
 <h2>Others</h2>
 <p>Stripe's payment page, and Google's or Apple's sign-in if you use them, set their own cookies on their own sites, under their own policies.</p>
 

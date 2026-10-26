@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { MemorySupportStore } from './supportStore.js';
+export const DRIVE_OUTCOMES = ['completed', 'collision', 'left-route', 'time-limit', 'abandoned'];
 export class MemoryStore {
     support = new MemorySupportStore();
     accounts = new Map();
@@ -9,6 +10,7 @@ export class MemoryStore {
     rates = new Map();
     flagged = [];
     trials = new Map();
+    visits = [];
     async createTrial() { const t = { id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() }; this.trials.set(t.id, t); return { ...t, remaining: { ...t.remaining } }; }
     async getTrial(id) { const t = this.trials.get(id); return t ? { ...t, remaining: { ...t.remaining } } : null; }
     async moveTrial(id, mode, delta) {
@@ -146,15 +148,24 @@ export class MemoryStore {
         }
         return [...by.values()].sort((a, b) => b.joined - a.joined);
     }
+    async saveVisitEvents(events) { this.visits.push(...events.map(e => ({ ...e }))); }
+    async visitEvents(since, limit) { return this.visits.filter(e => e.at >= since).sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, limit); }
     async driveCounts(since) {
-        const n = { lesson: 0, test: 0, free: 0, failed: 0, total: 0 };
+        const n = countDrives();
         for (const d of this.drives.values())
-            if (d.startedAt >= since && d.status !== 'unpaid') {
-                n.total++;
-                n[d.mode]++;
-                if (d.status === 'failed')
-                    n.failed++;
-            }
+            if (d.startedAt >= since && d.status !== 'unpaid')
+                addDrive(n, d, 1);
         return n;
     }
+}
+export const countDrives = () => ({ lesson: 0, test: 0, free: 0, failed: 0, total: 0, completed: { lesson: 0, test: 0, free: 0 }, ended: {} });
+export function addDrive(n, d, count) {
+    n.total += count;
+    n[d.mode] += count;
+    if (d.status === 'failed')
+        n.failed += count;
+    if (d.status === 'completed')
+        n.completed[d.mode] += count;
+    if (d.status === 'ended')
+        n.ended[d.outcome ?? 'abandoned'] = (n.ended[d.outcome ?? 'abandoned'] ?? 0) + count;
 }

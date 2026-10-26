@@ -42,6 +42,8 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;margin:0;color:v
 .pri.highest{background:#fee2e2;color:#991b1b}.pri.high{background:#ffedd5;color:#9a3412}.pri.normal{background:var(--chip);color:var(--soft)}.pri.lower{background:var(--chip);color:var(--faint)}
 .overdue{color:var(--bad);font-weight:700}.unread-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px}
 .thread{display:grid;gap:10px}
+.bar{display:inline-block;height:8px;border-radius:4px;background:var(--accent);vertical-align:middle;min-width:2px}
+.half{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))}.half>.card{margin:0}
 .bubble{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .bubble.customer{background:var(--chip)}.bubble.note{background:#fef9c3;color:#422006;border-color:#fde047}
 .bubble.event{border:none;padding:0 4px;font-size:12.5px;color:var(--faint)}
@@ -58,7 +60,7 @@ p:empty{display:none}
 <header><h1>Driving Practice · Admin hub</h1><span class="who" id="who"></span>
 <button id="theme" type="button">Light / dark</button><button id="signout" type="button" hidden>Sign out</button></header>
 <nav class="tabs" id="tabs" hidden role="tablist">
-<button data-tab="overview" aria-selected="true">Overview</button><button data-tab="support">Support <span id="support-count"></span></button><button data-tab="customers">Customers</button>
+<button data-tab="overview" aria-selected="true">Overview</button><button data-tab="visitors">Visitors</button><button data-tab="support">Support <span id="support-count"></span></button><button data-tab="customers">Customers</button>
 <button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button>
 </nav>
 <main>
@@ -125,6 +127,22 @@ p:empty{display:none}
 <div class="card scroll"><h2>Emails and alerts for this request</h2><table><thead><tr><th>Created</th><th>To</th><th>Subject</th><th>Status</th></tr></thead><tbody id="ticket-outbox"></tbody></table></div>
 </section>
 
+<section data-panel="visitors" hidden>
+<div class="card"><form class="row" id="visits-range"><label class="small soft">Last <select id="visits-days"><option value="1">day</option><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><button class="primary">Show</button></form></div>
+<div class="grid" id="visit-stats"></div><p></p>
+<div class="card scroll"><h2>People a day</h2><table><thead><tr><th>Day</th><th class="num">People</th><th></th><th class="num">New</th><th class="num">From the home screen</th><th class="num">Signed in</th><th class="num">Visits</th><th class="num">Minutes</th></tr></thead><tbody id="visit-days"></tbody></table></div>
+<div class="card scroll"><h2>Where they come from</h2><table><thead><tr><th>Source</th><th class="num">Visits</th><th class="num">People</th><th class="num">Stay</th><th class="num">Started a drive</th><th class="num">Completed one</th><th class="num">Signed in</th></tr></thead><tbody id="visit-sources"></tbody></table></div>
+<div class="card scroll"><h2>The way to a completed drive</h2><table><thead><tr><th>Step</th><th class="num">People</th><th></th><th class="num">Lost here</th></tr></thead><tbody id="visit-funnel"></tbody></table></div>
+<div class="card scroll"><h2>Screens: where they go and where they leave</h2><table><thead><tr><th>Screen</th><th class="num">Views</th><th class="num">People</th><th class="num">Time on it</th><th class="num">Left the app here</th></tr></thead><tbody id="visit-screens"></tbody></table></div>
+<div class="half">
+<div class="card scroll"><h2>What they press</h2><table><thead><tr><th>Screen · button</th><th class="num">Presses</th><th class="num">People</th></tr></thead><tbody id="visit-clicks"></tbody></table></div>
+<div class="card scroll"><h2>From screen to screen</h2><table><thead><tr><th>Path</th><th class="num">Times</th></tr></thead><tbody id="visit-paths"></tbody></table></div>
+<div class="card scroll"><h2>Devices</h2><table><thead><tr><th>Device</th><th class="num">Visits</th></tr></thead><tbody id="visit-devices"></tbody></table></div>
+<div class="card scroll"><h2>Campaigns and countries</h2><table><thead><tr><th>Campaign or country</th><th class="num">Visits</th></tr></thead><tbody id="visit-campaigns"></tbody></table></div>
+</div>
+<p class="soft small" id="visits-note"></p>
+</section>
+
 <section data-panel="referrals" hidden>
 <div class="card scroll"><p class="small soft" id="referrals-note"></p><table><thead><tr><th>Referrer</th><th>Code</th><th class="num">Joined</th><th class="num">Paid</th><th class="num">Sessions earned</th></tr></thead><tbody id="referral-rows"></tbody></table></div>
 </section>
@@ -189,7 +207,7 @@ $('code-form').onsubmit=async e=>{
 $('signout').onclick=async()=>{await api('/api/auth/logout',{}).catch(()=>{});location.reload()};
 
 // ---- Tabs ----
-const loaders={overview:()=>api('/api/admin/overview'),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
+const loaders={overview:()=>api('/api/admin/overview'),visitors:()=>api(`/api/admin/visits?days=${$('visits-days').value}`),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
   for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
@@ -199,18 +217,23 @@ function show(tab,data){
   panels.forEach(p=>p.hidden=p.dataset.panel!==tab);
   if(tab==='overview')renderOverview(data);
   if(tab==='referrals')renderReferrals(data);
+  if(tab==='visitors')renderVisits(data);
 }
 
 // ---- Overview ----
+const ENDED={abandoned:'exited',collision:'crashed','left-route':'left the route','time-limit':'out of time'};
 function renderOverview(o){
+  const done=Object.values(o.drives.completed30).reduce((a,b)=>a+b,0),stopped=Object.values(o.drives.ended30).reduce((a,b)=>a+b,0);
   const s=(value,label,note)=>el('div',{class:'stat'},el('b',{},value),el('span',{},label),note?el('small',{},note):null);
   $('stats').replaceChildren(
     s(o.accounts.total,'Accounts',`${o.accounts.new7} new in 7 days · ${o.accounts.new30} in 30`),
     s(o.accounts.paying,'Paying customers','Paid with money at least once'),
     s(money(o.money.netPence),'Net revenue',`${money(o.money.grossPence)} paid − ${money(o.money.refundedPence)} refunded`),
     s(money(o.money.gross30Pence),'Paid in 30 days',`${o.money.payments30} payments`),
-    s(o.drives.started30,'Drives in 30 days',`${o.drives.lesson30} lessons · ${o.drives.test30} mock tests · ${o.drives.free30} free drives`),
-    s(o.drives.failed30,'Drives that failed to load','30 days (session given back, up to 3 a day each)'),
+    s(o.drives.started30,'Drives started in 30 days',`${o.drives.lesson30} lessons · ${o.drives.test30} mock tests · ${o.drives.free30} free drives`),
+    s(done,'Drives completed in 30 days',`${o.drives.completed30.lesson} of ${o.drives.lesson30} lessons · ${o.drives.completed30.test} of ${o.drives.test30} mock tests · ${o.drives.completed30.free} of ${o.drives.free30} free drives`),
+    s(stopped,'Stopped before the end',Object.entries(o.drives.ended30).map(([k,n])=>`${n} ${ENDED[k]??k}`).join(' · ')||'None'),
+    s(o.drives.failed30,'Drives that failed to load','30 days (no session used)'),
     s(o.sessionsHeld.sessions,'Sessions held by customers',`plus ${o.sessionsHeld.allowances} Starter Pass drives`),
     s(o.accounts.referred,'Joined by invite link',`${o.referrals.rewarded} referrer sessions earned`),
     s(o.support.awaitingAdmin,'Support: waiting for you',`${o.support.open} open requests`),
@@ -254,7 +277,7 @@ function renderCustomer(){
     el('td',{class:'num'},signed(e.sessionsDelta)),el('td',{},e.pot?POT[e.pot]:'Sessions'),el('td',{class:'num'},e.amountPence?money(e.amountPence):''),
     el('td',{},e.reason),el('td',{class:'small soft'},e.by??e.actor))));
   $('drive-rows').replaceChildren(...drives.map(d=>el('tr',{},el('td',{},when(d.startedAt)),el('td',{},d.scenario),el('td',{},POT[d.mode]??d.mode),
-    el('td',{class:d.status==='failed'?'warn':''},d.status+(d.refunded?' (given back)':'')),el('td',{},d.paidFrom==='sessions'?'Sessions':`Starter: ${POT[d.paidFrom]}`))),
+    el('td',{class:d.status==='failed'?'warn':''},(d.status==='ended'?`ended: ${ENDED[d.outcome]??d.outcome}`:d.status)+(d.refunded?' (given back)':'')),el('td',{},d.due?'On completion':d.paidFrom==='sessions'?'Sessions':d.paidFrom==='admin'?'Admin':d.paidFrom==='trial'?'Free try':`Starter: ${POT[d.paidFrom]}`))),
     ...(drives.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No drives yet.'))]));
 }
 $('back').onclick=()=>showTab('customers');
@@ -312,6 +335,37 @@ async function loadFlags(){
 }
 
 // ---- Referrals ----
+// ---- Visitors ----
+$('visits-range').onsubmit=e=>{e.preventDefault();showTab('visitors')};
+const dur=s=>s<60?`${s} s`:s<3600?`${Math.round(s/60)} min`:`${(s/3600).toFixed(1)} h`;
+const pct=x=>`${Math.round(x*100)}%`;
+const rows=(id,list,cols,empty)=>$(id).replaceChildren(...list.map(r=>el('tr',{},...cols.map(c=>c(r)))),
+  ...(list.length?[]:[el('tr',{},el('td',{colSpan:cols.length,class:'soft'},empty??'Nothing yet.'))]));
+const td=(v,num)=>el('td',num?{class:'num'}:{},v);
+function renderVisits(v){
+  const s=(value,label,note)=>el('div',{class:'stat'},el('b',{},value),el('span',{},label),note?el('small',{},note):null);
+  const t=v.totals,r=v.returning;
+  $('visit-stats').replaceChildren(
+    s(t.visitors,'People',`${t.sessions} visits`),
+    s(t.homeScreen,'Opened from the home screen','The installed app'),
+    s(dur(t.medianSeconds),'Typical stay',`Average ${dur(t.meanSeconds)}`),
+    s(t.sessions?pct(t.bounced/t.sessions):'0%','Left at once',`${t.bounced} visits: under 30 s, nothing pressed`),
+    s(r.newVisitors?pct(r.cameBack/r.newVisitors):'—','Came back',`${r.cameBack} of ${r.newVisitors} new people (${r.cameBackWithinWeek} within a week)`));
+  const most=Math.max(1,...v.daily.map(d=>d.visitors));
+  rows('visit-days',[...v.daily].reverse(),[d=>td(day(d.day)),d=>td(d.visitors,1),d=>el('td',{},el('span',{class:'bar',style:`width:${Math.round(d.visitors/most*120)}px`})),
+    d=>td(d.newVisitors,1),d=>td(d.homeScreen,1),d=>td(d.signedIn,1),d=>td(d.sessions,1),d=>td(d.minutes,1)]);
+  rows('visit-sources',v.sources,[x=>td(x.source),x=>td(x.sessions,1),x=>td(x.visitors,1),x=>td(dur(x.meanSeconds),1),
+    x=>td(`${x.startedDrive} (${pct(x.startedDrive/x.sessions)})`,1),x=>td(`${x.completedDrive} (${pct(x.completedDrive/x.sessions)})`,1),x=>td(x.signedIn,1)]);
+  const top=Math.max(1,v.funnel[0]?.people??1);
+  rows('visit-funnel',v.funnel,[(x)=>td(x.step),x=>td(x.people,1),x=>el('td',{},el('span',{class:'bar',style:`width:${Math.round(x.people/top*160)}px`})),
+    x=>{const i=v.funnel.indexOf(x),before=i?v.funnel[i-1].people:0;return td(i&&before?`${before-x.people} (${pct((before-x.people)/before)})`:'',1)}]);
+  rows('visit-screens',v.screens,[x=>td(x.screen),x=>td(x.views,1),x=>td(x.visitors,1),x=>td(dur(x.meanSeconds),1),x=>td(`${x.exits} (${pct(x.exitShare)})`,1)]);
+  rows('visit-clicks',v.clicks,[x=>td(x.target),x=>td(x.n,1),x=>td(x.visitors,1)]);
+  rows('visit-paths',v.paths,[x=>td(x.path),x=>td(x.n,1)]);
+  rows('visit-devices',v.devices,[x=>td(x.device),x=>td(x.sessions,1)]);
+  rows('visit-campaigns',[...v.campaigns.map(c=>({k:c.campaign,n:c.sessions})),...v.countries.map(c=>({k:c.country,n:c.sessions}))],[x=>td(x.k),x=>td(x.n,1)]);
+  $('visits-note').textContent=`From the app's own visit records (no third party; not kept for devices that ask not to be tracked). A visit is one opening of the app; "stay" is from opening to the last thing seen while on screen. Updated ${when(v.at)}.`;
+}
 function renderReferrals(r){
   $('referrals-note').textContent=`${r.referrers.length} people have brought in sign-ups. A referrer earns one session when someone they invited first pays with money; ${r.refused} invites were not counted (own link or an existing person).`;
   $('referral-rows').replaceChildren(...r.referrers.map(x=>el('tr',{class:'link',on:{click:()=>openCustomer(x.id)}},

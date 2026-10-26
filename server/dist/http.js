@@ -1,6 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Admin } from './admin.js';
 import { MAX_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from './support.js';
+import { DRIVE_OUTCOMES } from './store.js';
+import { parseVisitEvents, summariseVisits } from './analytics.js';
+/** Visit posts from one address a minute (a phone sends one every 15 s or so; a school's shared connection, many). */
+const VISIT_POSTS_PER_MINUTE = 240;
+/** The most events the Visitors tab sums up at once. */
+const MAX_VISIT_EVENTS = 400_000;
 /** Signed-in cookie: account id and expiry, signed with SESSION_SECRET. HttpOnly; Secure when served over HTTPS. */
 const COOKIE = 'dp_session', COOKIE_DAYS = 60;
 /** The device's free try (signed the same way; its id, not an account): kept a year. */
@@ -188,11 +194,20 @@ export function handler(service, outbox) {
                     return send(res, 200, { driveId: t.start.drive.id, balance: 0, trial: true });
                 return send(res, t.start.reason === 'slow-down' ? 429 : 402, { error: accountId && t.start.reason === 'trial-used' ? 'no-sessions' : t.start.reason });
             }
-            const drive = /^\/api\/drives\/([\w-]{8,64})\/(loaded|failed|completed)$/.exec(path);
+            const drive = /^\/api\/drives\/([\w-]{8,64})\/(loaded|failed|completed|ended)$/.exec(path);
             if (method === 'POST' && drive) {
-                const status = drive[2];
-                const ok = (!!accountId && await service.driveStatus(accountId, drive[1], status)) || (!!trialId && await service.driveStatus(`trial:${trialId}`, drive[1], status));
+                const status = drive[2], said = (await json(req))['outcome'];
+                const outcome = DRIVE_OUTCOMES.find(o => o === said);
+                const ok = (!!accountId && await service.driveStatus(accountId, drive[1], status, outcome)) || (!!trialId && await service.driveStatus(`trial:${trialId}`, drive[1], status, outcome));
                 return send(res, ok ? 200 : 404, { ok });
+            }
+            // Visits (analytics.ts): what the app reports of how it is used. Nothing back but ok; refused quietly when busy.
+            if (method === 'POST' && path === '/api/visits') {
+                if (!await service.store.rateHit(`visits:${ipOf(req)}`, 60_000, VISIT_POSTS_PER_MINUTE))
+                    return send(res, 429, { error: 'slow-down' });
+                const country = str(req.headers['cf-ipcountry'] ?? req.headers['x-vercel-ip-country'] ?? req.headers['x-country-code'], 4);
+                await service.store.saveVisitEvents(parseVisitEvents(await json(req), new Date(), accountId, country?.toUpperCase() ?? null));
+                return send(res, 200, { ok: true });
             }
             if (method === 'POST' && path === '/api/stripe/webhook') {
                 const raw = await body(req, 1_000_000);
@@ -249,6 +264,10 @@ export function handler(service, outbox) {
                     return send(res, 200, { ...await admin.overview(), support: await support.counts(),
                         webhooks: { ...service.webhookStats, mode: config.stripeMode } });
                 // Support: the queue, a request, and what an admin can do with it.
+                if (method === 'GET' && path === '/api/admin/visits') {
+                    const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30)), now = new Date();
+                    return send(res, 200, summariseVisits(await service.store.visitEvents(new Date(now.getTime() - days * 86400_000), MAX_VISIT_EVENTS), now, days));
+                }
                 if (method === 'GET' && path === '/api/admin/support')
                     return send(res, 200, await support.queue(url.searchParams.get('state') ?? 'open'));
                 const ticket = /^\/api\/admin\/support\/([\w-]{8,64})(?:\/(acknowledge|messages|state|priority))?$/.exec(path);
