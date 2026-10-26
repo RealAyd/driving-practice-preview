@@ -223,7 +223,7 @@ export class Service {
         return { trialId: trial.id, start: { ok: true, drive, balance: 0 } };
     }
     /** The app reports how the drive went; one that failed to load gives its session back. */
-    async driveStatus(accountId, driveId, status) {
+    async driveStatus(accountId, driveId, status, outcome) {
         const d = await this.store.getDrive(driveId);
         if (!d || d.accountId !== accountId || d.status === 'unpaid')
             return false;
@@ -245,7 +245,13 @@ export class Service {
             await this.store.updateDrive(driveId, { status, refunded: r === 'ok' || r === 'duplicate' });
             return true;
         }
-        if (d.status !== 'completed')
+        // Finished drives stay finished (a late 'loaded' does not undo one; a completed one is never made 'ended').
+        if (d.status === 'completed' || (d.status === 'ended' && status !== 'completed'))
+            return true;
+        if (status === 'completed' || status === 'ended')
+            await this.store.updateDrive(driveId, { status, endedAt: new Date(),
+                outcome: status === 'completed' ? 'completed' : outcome && outcome !== 'completed' ? outcome : 'abandoned' });
+        else
             await this.store.updateDrive(driveId, { status });
         return true;
     }

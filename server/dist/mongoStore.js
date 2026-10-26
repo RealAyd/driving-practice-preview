@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient, MongoServerError } from 'mongodb';
 import { MongoSupportStore } from './mongoSupportStore.js';
+import { addDrive, countDrives } from './store.js';
 const out = (d) => {
     if (!d)
         return null;
@@ -33,6 +34,7 @@ export class MongoStore {
     get rates() { return this.db.collection('rate_limits'); }
     get flagged() { return this.db.collection('flags'); }
     get trialDocs() { return this.db.collection('trials'); }
+    get visits() { return this.db.collection('visit_events'); }
     async indexes() {
         // Sparse: an Apple account without an email, or accounts without a provider, do not collide.
         await this.accounts.createIndex({ email: 1 }, { unique: true, sparse: true });
@@ -47,6 +49,8 @@ export class MongoStore {
         await this.entries.createIndex({ type: 1, createdAt: 1 });
         await this.accounts.createIndex({ createdAt: -1 });
         await this.drives.createIndex({ startedAt: -1 });
+        // Visits are kept 400 days, then removed by MongoDB itself.
+        await this.visits.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 86400 });
         await this.flagged.createIndex({ resolvedAt: 1, createdAt: -1 });
         await this.drives.createIndex({ accountId: 1, startedAt: -1 });
         await this.codes.createIndex({ tokenHash: 1 });
@@ -212,16 +216,17 @@ export class MongoStore {
         const r = await this.trialDocs.updateOne({ _id: id, ...(delta < 0 ? { [`remaining.${mode}`]: { $gte: 1 } } : {}) }, { $inc: { [`remaining.${mode}`]: delta } });
         return r.modifiedCount === 1;
     }
+    async saveVisitEvents(events) { if (events.length)
+        await this.visits.insertMany(events.map(e => ({ ...e }))); }
+    async visitEvents(since, limit) {
+        return (await this.visits.find({ at: { $gte: since } }, { projection: { _id: 0 } }).sort({ at: 1 }).limit(limit).toArray());
+    }
     async driveCounts(since) {
         const rows = await this.drives.aggregate([{ $match: { startedAt: { $gte: since }, status: { $ne: 'unpaid' } } },
-            { $group: { _id: { mode: '$mode', status: '$status' }, n: { $sum: 1 } } }]).toArray();
-        const n = { lesson: 0, test: 0, free: 0, failed: 0, total: 0 };
-        for (const r of rows) {
-            n.total += r.n;
-            n[r._id.mode] += r.n;
-            if (r._id.status === 'failed')
-                n.failed += r.n;
-        }
+            { $group: { _id: { mode: '$mode', status: '$status', outcome: '$outcome' }, n: { $sum: 1 } } }]).toArray();
+        const n = countDrives();
+        for (const r of rows)
+            addDrive(n, r._id, r.n);
         return n;
     }
 }
