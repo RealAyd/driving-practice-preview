@@ -1,7 +1,7 @@
 {
-  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive. `allowances`: drives of one kind only (lesson, test = mock test, free = free drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; which set is used follows the Stripe key (test or live), so live links take payments only on a server with a live key.",
+  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive (each used when a drive is completed). `allowances`: drives of one kind only (lesson, test = mock test, free = free drive); no pack gives them now (older Starter Passes did, and any left are used for any drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; which set is used follows the Stripe key (test or live), so live links take payments only on a server with a live key.",
   "packs": [
-    {"id": "starter", "label": "Starter Pass", "price": "£2.99", "description": "1 lesson, 1 mock test and 1 free drive", "sessions": 0, "allowances": {"lesson": 1, "test": 1, "free": 1}, "starter": true,
+    {"id": "starter", "label": "Starter Pass", "price": "£2.99", "description": "3 sessions", "sessions": 3, "starter": true,
      "links": {"test": "https://buy.stripe.com/test_3cI8wHeQWfyc6Fr4Qe0VO02", "live": "https://buy.stripe.com/4gM4gr5gmbhWe7T0zY0VO05"}},
     {"id": "vr-5", "label": "VR 5", "price": "£9.99", "description": "5 sessions", "sessions": 5,
      "links": {"test": "https://buy.stripe.com/test_8x2fZ9106adS5Bn0zY0VO03", "live": "https://buy.stripe.com/28E5kv9wC4Tygg1aay0VO06"}},

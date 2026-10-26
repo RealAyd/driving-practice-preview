@@ -233,7 +233,7 @@ function renderOverview(o){
     s(o.drives.started30,'Drives started in 30 days',`${o.drives.lesson30} lessons · ${o.drives.test30} mock tests · ${o.drives.free30} free drives`),
     s(done,'Drives completed in 30 days',`${o.drives.completed30.lesson} of ${o.drives.lesson30} lessons · ${o.drives.completed30.test} of ${o.drives.test30} mock tests · ${o.drives.completed30.free} of ${o.drives.free30} free drives`),
     s(stopped,'Stopped before the end',Object.entries(o.drives.ended30).map(([k,n])=>`${n} ${ENDED[k]??k}`).join(' · ')||'None'),
-    s(o.drives.failed30,'Drives that failed to load','30 days (session given back, up to 3 a day each)'),
+    s(o.drives.failed30,'Drives that failed to load','30 days (no session used)'),
     s(o.sessionsHeld.sessions,'Sessions held by customers',`plus ${o.sessionsHeld.allowances} Starter Pass drives`),
     s(o.accounts.referred,'Joined by invite link',`${o.referrals.rewarded} referrer sessions earned`),
     s(o.support.awaitingAdmin,'Support: waiting for you',`${o.support.open} open requests`),
@@ -277,7 +277,7 @@ function renderCustomer(){
     el('td',{class:'num'},signed(e.sessionsDelta)),el('td',{},e.pot?POT[e.pot]:'Sessions'),el('td',{class:'num'},e.amountPence?money(e.amountPence):''),
     el('td',{},e.reason),el('td',{class:'small soft'},e.by??e.actor))));
   $('drive-rows').replaceChildren(...drives.map(d=>el('tr',{},el('td',{},when(d.startedAt)),el('td',{},d.scenario),el('td',{},POT[d.mode]??d.mode),
-    el('td',{class:d.status==='failed'?'warn':''},(d.status==='ended'?`ended: ${ENDED[d.outcome]??d.outcome}`:d.status)+(d.refunded?' (given back)':'')),el('td',{},d.paidFrom==='sessions'?'Sessions':`Starter: ${POT[d.paidFrom]}`))),
+    el('td',{class:d.status==='failed'?'warn':''},(d.status==='ended'?`ended: ${ENDED[d.outcome]??d.outcome}`:d.status)+(d.refunded?' (given back)':'')),el('td',{},d.due?'On completion':d.paidFrom==='sessions'?'Sessions':d.paidFrom==='admin'?'Admin':d.paidFrom==='trial'?'Free try':`Starter: ${POT[d.paidFrom]}`))),
     ...(drives.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No drives yet.'))]));
 }
 $('back').onclick=()=>showTab('customers');

@@ -63,7 +63,7 @@ export class Admin {
         return {
             account: { ...summary(a), invited, referrer: referrer ? { id: referrer.id, email: referrer.email, code: referrer.referralCode } : null },
             ledger: ledger.map(entryOut),
-            drives: drives.filter(d => d.status !== 'unpaid').map(d => ({ id: d.id, scenario: d.scenario, kind: d.kind, mode: d.mode, status: d.status, outcome: d.outcome, paidFrom: d.paidFrom, refunded: !!d.refunded, startedAt: d.startedAt.toISOString() }))
+            drives: drives.filter(d => d.status !== 'unpaid').map(d => ({ id: d.id, scenario: d.scenario, kind: d.kind, mode: d.mode, status: d.status, outcome: d.outcome, paidFrom: d.paidFrom, due: !!d.due, refunded: !!d.refunded, startedAt: d.startedAt.toISOString() }))
         };
     }
     /**
