@@ -349,6 +349,7 @@ function renderVisits(v){
     s(t.visitors,'People',`${t.sessions} visits`),
     s(t.homeScreen,'Opened from the home screen','The installed app'),
     s(dur(t.medianSeconds),'Typical stay',`Average ${dur(t.meanSeconds)}`),
+    s(t.sessions?pct(t.leftWhileLoading/t.sessions):'0%','Left while it loaded',`${t.leftWhileLoading} visits: the page opened, the app never showed`),
     s(t.sessions?pct(t.bounced/t.sessions):'0%','Left at once',`${t.bounced} visits: under 30 s, nothing pressed`),
     s(r.newVisitors?pct(r.cameBack/r.newVisitors):'—','Came back',`${r.cameBack} of ${r.newVisitors} new people (${r.cameBackWithinWeek} within a week)`));
   const most=Math.max(1,...v.daily.map(d=>d.visitors));

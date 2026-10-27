@@ -1,4 +1,5 @@
-export const VISIT_EVENT_TYPES = ['open', 'screen', 'click', 'drive', 'ping', 'leave', 'signin'];
+// 'land': the page opened (sent by index.html before the app has loaded); 'open': the app loaded and showing.
+export const VISIT_EVENT_TYPES = ['land', 'open', 'screen', 'click', 'drive', 'ping', 'leave', 'signin'];
 /** At most this many events in one post, and one post a few seconds apart from a session. */
 export const MAX_EVENTS_PER_POST = 60;
 const ID = /^[A-Za-z0-9_-]{8,40}$/;
@@ -45,6 +46,9 @@ export function sourceOf(open) {
         return String(d['src']).toLowerCase();
     if (d['ref'])
         return 'invite link';
+    // Opened in a social app's own browser (Instagram, TikTok…), which often gives no referrer.
+    if (typeof d['inApp'] === 'string')
+        return String(d['inApp']);
     if (typeof d['referrer'] === 'string') {
         const host = String(d['referrer']).replace(/^www\./, '');
         if (/(^|\.)google\./.test(host))
@@ -75,9 +79,13 @@ export function summariseVisits(events, now, days) {
         s.end = Math.max(s.end, t);
         if (e.accountId)
             s.signedIn = true;
-        if (e.type === 'open' && !s.open)
+        if (e.type === 'open' && !s.loaded) {
             s.open = e;
-        if ((e.type === 'screen' || e.type === 'open') && s.screens.at(-1)?.screen !== e.screen)
+            s.loaded = true;
+        }
+        if (e.type === 'land' && !s.open)
+            s.open = e;
+        if ((e.type === 'screen' || e.type === 'open' || e.type === 'land') && s.screens.at(-1)?.screen !== e.screen)
             s.screens.push({ screen: e.screen, at: t });
         if (e.type === 'click')
             s.clicks++;
@@ -167,7 +175,8 @@ export function summariseVisits(events, now, days) {
     const visitors = new Set(all.map(s => s.visitor));
     const reached = (test) => new Set(all.filter(test).map(s => s.visitor)).size;
     const funnel = [
-        { step: 'Opened the app', people: visitors.size },
+        { step: 'Opened the link', people: visitors.size },
+        { step: 'Waited for the app to load', people: reached(s => !!s.loaded) },
         { step: 'Looked at a drive', people: reached(s => s.screens.some(v => v.screen.startsWith('exercise'))) },
         { step: 'Started a drive', people: reached(s => s.started > 0) },
         { step: 'Completed a drive', people: reached(s => s.completed > 0) },
@@ -208,7 +217,8 @@ export function summariseVisits(events, now, days) {
         totals: { visitors: visitors.size, sessions: all.length, homeScreen: reached(s => !!s.open?.data?.['standalone']),
             medianSeconds: median(all.map(seconds)), meanSeconds: all.length ? Math.round(all.reduce((n, s) => n + seconds(s), 0) / all.length) : 0,
             // Left at once: under half a minute on the first screen, nothing pressed.
-            bounced: all.filter(s => s.screens.length <= 1 && s.clicks === 0 && seconds(s) < 30).length },
+            leftWhileLoading: all.filter(s => !s.loaded).length,
+            bounced: all.filter(s => s.loaded && s.screens.length <= 1 && s.clicks === 0 && seconds(s) < 30).length },
         daily: [...byDay.entries()].map(([day, d]) => ({ day, visitors: d.visitors.size, newVisitors: d.fresh.size, homeScreen: d.home.size, signedIn: d.signedIn.size,
             sessions: d.sessions, minutes: Math.round(d.seconds / 60) })),
         sources: top(bySource, r => r.sessions, 30).map(([source, r]) => ({ source, sessions: r.sessions, visitors: r.visitors.size, meanSeconds: Math.round(r.seconds / r.sessions),
