@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { freshTrial } from './store.js';
 import { Support } from './support.js';
 /** What a drive is, from its scenario id (the browser's own description of it is not trusted). */
 export function modeOf(scenario) {
@@ -219,16 +220,16 @@ export class Service {
         }
         await this.store.updateDrive(d.id, { paidFrom, due: false });
     }
-    // ---- The free try (no sign-up): one lesson, one mock test and one free drive per device ----
+    // ---- The free try (no sign-up): TRIAL_EACH lessons, mock tests and free drives per device ----
     /** What is left of a device's free try (all of it before the first drive). */
     async trialLeft(trialId) {
         const t = trialId ? await this.store.getTrial(trialId) : null;
-        return t ? { ...t.remaining } : { lesson: 1, test: 1, free: 1 };
+        return t ? { ...t.remaining } : freshTrial();
     }
     /**
      * A drive on the device's free try: the try is made on the first drive (rate-limited by address), then each kind
-     * can be completed once (it is used when the drive is completed). Returns the try's id (for the device's cookie)
-     * with the outcome.
+     * can be completed TRIAL_EACH times (one is used when a drive is completed). Returns the try's id (for the device's
+     * cookie) with the outcome.
      */
     async startTrialDrive(trialId, ip, kind, scenario) {
         if (!SCENARIO.test(scenario))

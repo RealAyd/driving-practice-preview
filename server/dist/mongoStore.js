@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient, MongoServerError } from 'mongodb';
 import { MongoSupportStore } from './mongoSupportStore.js';
-import { addDrive, countDrives } from './store.js';
+import { addDrive, countDrives, freshTrial } from './store.js';
 const out = (d) => {
     if (!d)
         return null;
@@ -206,7 +206,7 @@ export class MongoStore {
             { $sort: { joined: -1 } }, { $limit: 500 }, { $project: { _id: 0, referrerId: '$_id', joined: 1, paid: 1 } }]).toArray();
     }
     async createTrial() {
-        const doc = { _id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() };
+        const doc = { _id: randomUUID(), remaining: freshTrial(), createdAt: new Date() };
         await this.trialDocs.insertOne(doc);
         return out(doc);
     }
