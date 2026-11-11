@@ -12,6 +12,7 @@ const types:Record<string,string>={
   '.wasm':'application/wasm','.mp3':'audio/mpeg','.ogg':'audio/ogg','.wav':'audio/wav',
   '.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp',
   '.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2',
+  '.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8',
 };
 
 /** Serve only the built public directory; API requests retain their original body and headers. */
@@ -38,7 +39,7 @@ export function withStatic(api:RequestListener,directory:string):RequestListener
       res.setHeader('Content-Type',types[ext]??'application/octet-stream');
       const hashed=path.startsWith('/assets/')&&/-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(path);
       res.setHeader('Cache-Control',ext==='.html'?'no-cache':hashed?'public, max-age=31536000, immutable':'public, max-age=3600');
-      const compress=['.html','.js','.css','.json','.svg','.gltf'].includes(ext);
+      const compress=['.html','.js','.css','.json','.svg','.gltf','.txt','.xml'].includes(ext);
       if(compress)res.setHeader('Vary','Accept-Encoding');
       const gzip=compress&&(req.headers['accept-encoding']??'').split(',').some(part=>{
         const [name,...params]=part.trim().split(';');

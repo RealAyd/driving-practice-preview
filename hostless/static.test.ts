@@ -10,7 +10,7 @@ let directory:string,server:Server,base:string;
 beforeAll(async()=>{
   directory=await mkdtemp(join(tmpdir(),'sim-static-'));
   await mkdir(join(directory,'assets'));
-  for(const [name,value] of Object.entries({'index.html':'<h1>Simulator</h1>','assets/main-abcdefgh.js':'console.log(1)','assets/model.glb':'model','texture.ktx2':'texture','engine.wasm':'wasm','CNAME':'production.example'}))await writeFile(join(directory,name),value);
+  for(const [name,value] of Object.entries({'index.html':'<h1>Simulator</h1>','assets/main-abcdefgh.js':'console.log(1)','assets/model.glb':'model','texture.ktx2':'texture','engine.wasm':'wasm','CNAME':'production.example','robots.txt':'User-agent: *','sitemap.xml':'<urlset/>'}))await writeFile(join(directory,name),value);
   await symlink('/etc/passwd',join(directory,'outside.txt'));
   server=createServer(withStatic(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;
@@ -26,9 +26,9 @@ it('serves HTML without long caching and compresses negotiated content',async()=
   expect(r.headers.get('content-encoding')).toBe('gzip');
   expect(await r.text()).toBe('<h1>Simulator</h1>');
 });
-it('caches only hashed assets immutably and assigns model, texture and wasm MIME types',async()=>{
+it('caches only hashed assets immutably and assigns model, texture, wasm, robots and sitemap MIME types',async()=>{
   expect((await fetch(base+'/assets/main-abcdefgh.js')).headers.get('cache-control')).toContain('immutable');
-  for(const [path,type] of [['/assets/model.glb','model/gltf-binary'],['/texture.ktx2','image/ktx2'],['/engine.wasm','application/wasm']]){
+  for(const [path,type] of [['/assets/model.glb','model/gltf-binary'],['/texture.ktx2','image/ktx2'],['/engine.wasm','application/wasm'],['/robots.txt','text/plain; charset=utf-8'],['/sitemap.xml','application/xml; charset=utf-8']]){
     const r=await fetch(base+path);expect(r.headers.get('content-type')).toBe(type);
     expect(r.headers.get('cache-control')).toBe('public, max-age=3600');
   }
