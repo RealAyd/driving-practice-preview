@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /support.html
+Disallow: /api/
+Disallow: /*?*signin=
+Disallow: /*?*checkout=
+Disallow: /*?*ref=
+
+Sitemap: https://vr.drivingpractice.live/sitemap.xml
