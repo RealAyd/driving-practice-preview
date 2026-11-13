@@ -1,11 +1,11 @@
 {
-  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive (each used when a drive is completed). `allowances`: drives of one kind only (lesson, test = mock test, free = free drive); no pack gives them now (older Starter Passes did, and any left are used for any drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; which set is used follows the Stripe key (test or live), so live links take payments only on a server with a live key. `unlimited`: an unlimited pass, every kind of drive with nothing used: `days` from payment, or `monthly`; with `renews` it is a Stripe subscription, and each renewal (Stripe's invoice.paid) extends it to the end of the period paid for; it lapses when cancelled. `saleEnds`: the last day it is sold (UK). `retired`: no longer sold, kept so its payments and refunds are recognised. Prices shown come from Stripe (the Payment Link's price) once read; `price` until then.",
+  "note": "Packs sold through Stripe Payment Links. The webhook grants the pack whose link was paid (the link is looked up with Stripe, never taken from the browser). `sessions`: general sessions for any drive (each used when a drive is completed). `allowances`: drives of one kind only (lesson, test = mock test, free = free drive); no pack gives them now (older Starter Passes did, and any left are used for any drive). `starter`: once per account (a second purchase is refunded automatically). Links are public addresses; which set is used follows the Stripe key (test or live), so live links take payments only on a server with a live key. `unlimited`: an unlimited pass, every kind of drive with nothing used: `days` from payment, or `monthly`; with `renews` it is a Stripe subscription, and each renewal (Stripe's invoice.paid) extends it to the end of the period paid for; it lapses when cancelled. `saleEnds`: the last day it is sold (UK). `retired`: no longer sold, kept so its payments and refunds are recognised. Prices shown come from Stripe (the Payment Link's price) once read; `price` until then. `deal` and `sticker`: shown on the pass (the owner's offer wording).",
   "packs": [
     {
       "id": "black-friday-week",
-      "label": "Black Friday All Week Unlimited Pass",
+      "label": "Weekly Unlimited Pass",
       "price": "£4.99 a week",
-      "description": "Unlimited free drives, lessons and mock tests, renews weekly",
+      "description": "Cancel anytime",
       "sessions": 0,
       "unlimited": {
         "days": 7,
@@ -15,13 +15,15 @@
       "links": {
         "test": "",
         "live": "https://buy.stripe.com/bJefZ9106dq4bZL82q0VO09"
-      }
+      },
+      "deal": "-85% off",
+      "sticker": "Limited Time Discount"
     },
     {
       "id": "monthly",
-      "label": "Monthly",
+      "label": "Monthly Unlimited Pass",
       "price": "£10.99 a month",
-      "description": "Unlimited free drives, lessons and mock tests, renews monthly",
+      "description": "Cancel anytime",
       "sessions": 0,
       "unlimited": {
         "monthly": true,
@@ -30,7 +32,9 @@
       "links": {
         "test": "",
         "live": "https://buy.stripe.com/cNidR17ou99O6FreqO0VO0a"
-      }
+      },
+      "deal": "-85% off",
+      "sticker": "Limited Time Discount"
     },
     {
       "id": "starter",
