@@ -1,0 +1,2 @@
+import"./index-Dt30L3_E.js";import{i as e,n as t,o as n,r,s as i,t as a}from"./glTFLoader.pure-r4x3h_uV.js";e(),i();export{a as ArrayItem,n as GLTFFileLoader,t as GLTFLoader,r as LoadBoundingInfoFromPositionAccessor,e as RegisterGLTF2Loader};
+//# sourceMappingURL=glTFLoader-Dp5K7G8Z.js.map

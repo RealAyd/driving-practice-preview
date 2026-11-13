@@ -241,6 +241,17 @@ export class Service {
         await this.store.appendLedger({ product: 'simulator', accountId: friend.referredBy, type: 'referral_bonus', sessionsDelta: REFERRAL_SESSIONS, amountPence: 0, currency: 'gbp',
             actor: 'system', reason: 'Free drives: a friend you invited completed a drive', idempotencyKey: key });
     }
+    /**
+     * Recently completed drives, for the home screen's "Recently practised": what was practised (its scenario id and kind)
+     * and how long ago, nothing about who. The admins' own drives are left out. Newest first, at most `limit`, last 7 days.
+     */
+    async recent(limit = 8) {
+        const now = Date.now();
+        const drives = await this.store.listDrives({ since: new Date(now - 7 * 86400_000), limit: 500 });
+        return drives.filter(d => d.status === 'completed' && d.endedAt && d.paidFrom !== 'admin')
+            .sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime()).slice(0, limit)
+            .map(d => ({ scenario: d.scenario, mode: d.mode, secondsAgo: Math.max(0, Math.round((now - d.endedAt.getTime()) / 1000)) }));
+    }
     // ---- The free try (no sign-up): TRIAL_EACH lessons, mock tests and free drives per device ----
     /** What is left of a device's free try (all of it before the first drive). */
     async trialLeft(trialId) {
