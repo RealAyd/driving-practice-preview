@@ -4,7 +4,7 @@
     {
       "id": "black-friday-week",
       "label": "Black Friday All Week Unlimited Pass",
-      "price": "",
+      "price": "£4.99 a week",
       "description": "Unlimited free drives, lessons and mock tests, renews weekly",
       "sessions": 0,
       "unlimited": {
@@ -20,7 +20,7 @@
     {
       "id": "monthly",
       "label": "Monthly",
-      "price": "",
+      "price": "£10.99 a month",
       "description": "Unlimited free drives, lessons and mock tests, renews monthly",
       "sessions": 0,
       "unlimited": {

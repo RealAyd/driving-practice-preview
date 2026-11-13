@@ -350,7 +350,9 @@ export class Service {
             void this.refreshPrices();
         return this.config.packs.filter(p => !p.retired).map(p => ({ id: p.id, label: p.label, price: this.prices.get(p.links[this.config.stripeMode]) ?? p.price,
             description: p.description ?? '', sessions: p.sessions, allowances: p.allowances ?? {}, starter: !!p.starter,
-            ...(p.unlimited ? { unlimited: p.unlimited } : {}), ...(p.saleEnds ? { saleEnds: p.saleEnds } : {}), onSale: onSale(p, this.config.stripeMode) }));
+            ...(p.unlimited ? { unlimited: p.unlimited } : {}), ...(p.saleEnds ? { saleEnds: p.saleEnds } : {}), onSale: onSale(p, this.config.stripeMode),
+            // Staging (sign-in first) shows the passes sold live, to see them as they will look; they are bought on the live site.
+            ...(this.config.signInFirst && !onSale(p, this.config.stripeMode) && onSale(p, 'live') ? { preview: true } : {}) }));
     }
     prices = new Map();
     pricesAt = 0;
