@@ -5,7 +5,7 @@
       "id": "black-friday-week",
       "label": "Weekly Unlimited Pass",
       "price": "£4.99 a week",
-      "description": "Cancel anytime",
+      "description": "15 drives used to cost £24.99 · Cancel anytime",
       "sessions": 0,
       "unlimited": {
         "days": 7,
@@ -16,14 +16,14 @@
         "test": "",
         "live": "https://buy.stripe.com/bJefZ9106dq4bZL82q0VO09"
       },
-      "deal": "-85% off",
+      "deal": "Save up to 80%",
       "sticker": "Limited Time Discount"
     },
     {
       "id": "monthly",
       "label": "Monthly Unlimited Pass",
       "price": "£10.99 a month",
-      "description": "Cancel anytime",
+      "description": "35 drives used to cost £49.99 · Cancel anytime",
       "sessions": 0,
       "unlimited": {
         "monthly": true,
@@ -33,7 +33,7 @@
         "test": "",
         "live": "https://buy.stripe.com/cNidR17ou99O6FreqO0VO0a"
       },
-      "deal": "-85% off",
+      "deal": "78% less",
       "sticker": "Limited Time Discount"
     },
     {
