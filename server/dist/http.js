@@ -108,15 +108,15 @@ export function handler(service, outbox) {
             const trialId = trialCookie?.startsWith('trial:') ? trialCookie.slice(6) : null;
             if (method === 'GET' && path === '/api/config')
                 return send(res, 200, {
-                    gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes,
+                    gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes, signInFirst: config.signInFirst,
                     appleRedirect: `${config.appBaseUrl}/api/auth/apple/callback`
                 });
             if (method === 'GET' && path === '/api/me') {
                 const me = accountId ? await service.me(accountId) : null;
                 if (accountId && !me)
                     setSession(res, null);
-                // (The device's free try: what is left of it, signed in or not.)
-                const trial = await service.trialLeft(trialId);
+                // (The device's free try: what is left of it, signed in or not; nothing while signed out where sign-in comes first.)
+                const trial = !me && config.signInFirst ? { lesson: 0, test: 0, free: 0 } : await service.trialLeft(trialId);
                 return send(res, 200, me ? { signedIn: true, ...me, trial } : { signedIn: false, trial });
             }
             if (method === 'POST' && path === '/api/auth/email') {
@@ -182,6 +182,8 @@ export function handler(service, outbox) {
             }
             if (method === 'POST' && path === '/api/drives') {
                 const b = await json(req), kind = str(b['kind'], 40) ?? 'drive', scenario = str(b['scenario'], 80) ?? '';
+                if (!accountId && config.signInFirst)
+                    return send(res, 401, { error: 'sign-in' });
                 if (accountId) {
                     const r = await service.startDrive(accountId, kind, scenario);
                     if (r.ok)
