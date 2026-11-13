@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { profileOf } from './profile.js';
 import { freshTrial } from './store.js';
 import { Support } from './support.js';
 /** A pass's price as the app says it: "£4.99", "£14.99 a month". */
@@ -211,12 +212,12 @@ export class Service {
         const admin = isAdminEmail(this.config, account.email);
         // An unlimited pass: every drive, nothing used.
         if (!admin && account.unlimitedUntil && account.unlimitedUntil.getTime() > Date.now()) {
-            const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'pass', startedAt: new Date(), status: 'started' });
+            const drive = await this.store.createDrive({ accountId, owner: accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'pass', startedAt: new Date(), status: 'started' });
             return { ok: true, drive, balance: account.balance };
         }
         if (!admin && account.balance <= 0 && !POTS.some(p => (account.allowances?.[p] ?? 0) > 0))
             return { ok: false, reason: 'no-sessions' };
-        const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: admin ? 'admin' : 'sessions',
+        const drive = await this.store.createDrive({ accountId, owner: accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: admin ? 'admin' : 'sessions',
             ...(admin ? {} : { due: true }), startedAt: new Date(), status: 'started' });
         return { ok: true, drive, balance: account.balance };
     }
@@ -291,7 +292,7 @@ export class Service {
      * can be completed TRIAL_EACH times (one is used when a drive is completed). Returns the try's id (for the device's
      * cookie) with the outcome.
      */
-    async startTrialDrive(trialId, ip, kind, scenario) {
+    async startTrialDrive(trialId, ip, kind, scenario, owner) {
         if (!SCENARIO.test(scenario))
             return { trialId, start: { ok: false, reason: 'trial-used' } };
         let trial = trialId ? await this.store.getTrial(trialId) : null;
@@ -303,11 +304,11 @@ export class Service {
         const mode = modeOf(scenario);
         if ((trial.remaining[mode] ?? 0) <= 0)
             return { trialId: trial.id, start: { ok: false, reason: 'trial-used' } };
-        const drive = await this.store.createDrive({ accountId: `trial:${trial.id}`, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'trial', due: true, startedAt: new Date(), status: 'started' });
+        const drive = await this.store.createDrive({ accountId: `trial:${trial.id}`, ...(owner ? { owner } : {}), kind: kind.slice(0, 40), scenario, mode, paidFrom: 'trial', due: true, startedAt: new Date(), status: 'started' });
         return { trialId: trial.id, start: { ok: true, drive, balance: 0 } };
     }
     /** The app reports how the drive went: a completed one uses its session; one that failed to load used nothing. */
-    async driveStatus(accountId, driveId, status, outcome) {
+    async driveStatus(accountId, driveId, status, outcome, result) {
         const d = await this.store.getDrive(driveId);
         if (!d || d.accountId !== accountId || d.status === 'unpaid')
             return false;
@@ -337,10 +338,14 @@ export class Service {
             return true;
         if (status === 'completed' || status === 'ended')
             await this.store.updateDrive(driveId, { status, endedAt: new Date(),
-                outcome: status === 'completed' ? 'completed' : outcome && outcome !== 'completed' ? outcome : 'abandoned' });
+                outcome: status === 'completed' ? 'completed' : outcome && outcome !== 'completed' ? outcome : 'abandoned', ...(result ? { result } : {}) });
         else
             await this.store.updateDrive(driveId, { status });
         return true;
+    }
+    /** The signed-in learner's profile (profile.ts), from their last 500 drives. */
+    async profile(accountId) {
+        return profileOf(await this.store.listDrives({ owner: accountId, limit: 500 }));
     }
     // ---- Payments (Stripe Payment Links) ----
     /** The packs on sale in this mode, as the app shows them. */

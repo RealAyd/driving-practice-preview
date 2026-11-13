@@ -141,7 +141,7 @@ export class MemoryStore {
         return { sessions, allowances };
     }
     async listDrives(q) {
-        return [...this.drives.values()].filter(d => (!q.accountId || d.accountId === q.accountId) && (!q.since || d.startedAt >= q.since))
+        return [...this.drives.values()].filter(d => (!q.accountId || d.accountId === q.accountId) && (!q.owner || d.owner === q.owner || d.accountId === q.owner) && (!q.since || d.startedAt >= q.since))
             .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).slice(0, q.limit).map(d => ({ ...d }));
     }
     async referrers() {

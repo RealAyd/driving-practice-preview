@@ -1,3 +1,4 @@
+import { cleanResult } from './profile.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Admin } from './admin.js';
 import { MAX_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from './support.js';
@@ -119,6 +120,9 @@ export function handler(service, outbox) {
                     gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes, signInFirst: config.signInFirst,
                     appleRedirect: `${config.appBaseUrl}/api/auth/apple/callback`
                 });
+            // The learner's profile: their drives, best mock test, weak areas and progress.
+            if (method === 'GET' && path === '/api/profile')
+                return send(res, 200, await service.profile(signedIn()));
             if (method === 'GET' && path === '/api/me') {
                 const me = accountId ? await service.me(accountId) : null;
                 if (accountId && !me)
@@ -197,7 +201,7 @@ export function handler(service, outbox) {
                     if (r.ok)
                         return send(res, 200, { driveId: r.drive.id, balance: r.balance });
                 }
-                const t = await service.startTrialDrive(trialId, ipOf(req), kind, scenario);
+                const t = await service.startTrialDrive(trialId, ipOf(req), kind, scenario, accountId ?? undefined);
                 if (t.trialId && t.trialId !== trialId)
                     setTrial(res, t.trialId);
                 if (t.start.ok)
@@ -206,9 +210,9 @@ export function handler(service, outbox) {
             }
             const drive = /^\/api\/drives\/([\w-]{8,64})\/(loaded|failed|completed|ended)$/.exec(path);
             if (method === 'POST' && drive) {
-                const status = drive[2], said = (await json(req))['outcome'];
-                const outcome = DRIVE_OUTCOMES.find(o => o === said);
-                const ok = (!!accountId && await service.driveStatus(accountId, drive[1], status, outcome)) || (!!trialId && await service.driveStatus(`trial:${trialId}`, drive[1], status, outcome));
+                const body = await json(req), status = drive[2], said = body['outcome'];
+                const outcome = DRIVE_OUTCOMES.find(o => o === said), result = cleanResult(body['result']);
+                const ok = (!!accountId && await service.driveStatus(accountId, drive[1], status, outcome, result)) || (!!trialId && await service.driveStatus(`trial:${trialId}`, drive[1], status, outcome, result));
                 return send(res, ok ? 200 : 404, { ok });
             }
             // Visits (analytics.ts): what the app reports of how it is used. Nothing back but ok; refused quietly when busy.
