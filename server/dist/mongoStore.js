@@ -22,7 +22,7 @@ export class MongoStore {
         this.support = new MongoSupportStore(db);
     }
     static async connect(uri) {
-        const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000 });
+        const client = new MongoClient(uri);
         try {
             await client.connect();
             const store = new MongoStore(client.db());
@@ -53,7 +53,9 @@ export class MongoStore {
         catch (e) {
             if (!(e instanceof MongoServerError && (e.code === 85 || e.code === 86)))
                 throw e;
-            await this.db.command({ collMod: collection, index: { keyPattern: key, expireAfterSeconds: seconds } });
+            // (Changing the age needs collMod, which a hosted database user may not have: the old age stays, and the API starts.)
+            await this.db.command({ collMod: collection, index: { keyPattern: key, expireAfterSeconds: seconds } })
+                .catch((m) => console.error(`${collection}: kept the old expiry (${m instanceof Error ? m.message : String(m)})`));
         }
     }
     async indexes() {
