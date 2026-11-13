@@ -74,6 +74,7 @@ async function json(req) {
 const str = (v, max = 500) => typeof v === 'string' && v.length <= max ? v : null;
 /** The request handler: everything under /api, plus /healthz. */
 export function handler(service, outbox) {
+    let recentCache = null;
     const { config } = service;
     const admin = new Admin(config, service.store);
     const { support } = service;
@@ -106,17 +107,24 @@ export function handler(service, outbox) {
                 throw new HttpError(401, 'sign-in'); return accountId; };
             const trialCookie = readSession(config.sessionSecret, cookies(req)[TRIAL_COOKIE]);
             const trialId = trialCookie?.startsWith('trial:') ? trialCookie.slice(6) : null;
+            // Recently practised (public; nothing about who): kept for a minute, so busy home screens cost one query a minute.
+            if (method === 'GET' && path === '/api/recent') {
+                if (!recentCache || Date.now() - recentCache.at > 60_000)
+                    recentCache = { at: Date.now(), items: await service.recent() };
+                const age = Math.round((Date.now() - recentCache.at) / 1000);
+                return send(res, 200, { recent: recentCache.items.map(r => ({ ...r, secondsAgo: r.secondsAgo + age })) });
+            }
             if (method === 'GET' && path === '/api/config')
                 return send(res, 200, {
-                    gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes,
+                    gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes, signInFirst: config.signInFirst,
                     appleRedirect: `${config.appBaseUrl}/api/auth/apple/callback`
                 });
             if (method === 'GET' && path === '/api/me') {
                 const me = accountId ? await service.me(accountId) : null;
                 if (accountId && !me)
                     setSession(res, null);
-                // (The device's free try: what is left of it, signed in or not.)
-                const trial = await service.trialLeft(trialId);
+                // (The device's free try: what is left of it, signed in or not; nothing while signed out where sign-in comes first.)
+                const trial = !me && config.signInFirst ? { lesson: 0, test: 0, free: 0 } : await service.trialLeft(trialId);
                 return send(res, 200, me ? { signedIn: true, ...me, trial } : { signedIn: false, trial });
             }
             if (method === 'POST' && path === '/api/auth/email') {
@@ -182,6 +190,8 @@ export function handler(service, outbox) {
             }
             if (method === 'POST' && path === '/api/drives') {
                 const b = await json(req), kind = str(b['kind'], 40) ?? 'drive', scenario = str(b['scenario'], 80) ?? '';
+                if (!accountId && config.signInFirst)
+                    return send(res, 401, { error: 'sign-in' });
                 if (accountId) {
                     const r = await service.startDrive(accountId, kind, scenario);
                     if (r.ok)

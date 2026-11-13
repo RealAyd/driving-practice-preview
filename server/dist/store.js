@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { MemorySupportStore } from './supportStore.js';
+/**
+ * What the service keeps: accounts, the append-only sessions ledger, drives (one consumed session each), sign-in
+ * codes, rate-limit counters and flags for an admin to review. The Mongo store is used when hosted; the memory store
+ * in tests and local development.
+ */
+/** Free drives of each kind (lesson, mock test, free drive) on a device's free try, without signing up. */
+export const TRIAL_EACH = 3;
+/** A new free try: all of it left. */
+export const freshTrial = () => ({ lesson: TRIAL_EACH, test: TRIAL_EACH, free: TRIAL_EACH });
 export const DRIVE_OUTCOMES = ['completed', 'collision', 'left-route', 'time-limit', 'abandoned'];
 export class MemoryStore {
     support = new MemorySupportStore();
@@ -11,7 +20,7 @@ export class MemoryStore {
     flagged = [];
     trials = new Map();
     visits = [];
-    async createTrial() { const t = { id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() }; this.trials.set(t.id, t); return { ...t, remaining: { ...t.remaining } }; }
+    async createTrial() { const t = { id: randomUUID(), remaining: freshTrial(), createdAt: new Date() }; this.trials.set(t.id, t); return { ...t, remaining: { ...t.remaining } }; }
     async getTrial(id) { const t = this.trials.get(id); return t ? { ...t, remaining: { ...t.remaining } } : null; }
     async moveTrial(id, mode, delta) {
         const t = this.trials.get(id);

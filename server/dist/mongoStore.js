@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient, MongoServerError } from 'mongodb';
 import { MongoSupportStore } from './mongoSupportStore.js';
-import { addDrive, countDrives } from './store.js';
+import { addDrive, countDrives, freshTrial } from './store.js';
 const out = (d) => {
     if (!d)
         return null;
@@ -9,6 +9,8 @@ const out = (d) => {
     return { ...rest, id: _id };
 };
 const duplicate = (e) => e instanceof MongoServerError && e.code === 11000;
+/** How long visit and click events are kept (days): the admin hub shows up to 90; a 512 MB database fills with more. */
+export const VISITS_KEPT_DAYS = 180;
 /** Text typed into the admin search, matched literally. */
 const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** The hosted store: one database (e.g. dp_sim_staging), its own collections and indexes. */
@@ -21,11 +23,18 @@ export class MongoStore {
     }
     static async connect(uri) {
         const client = new MongoClient(uri);
-        await client.connect();
-        const store = new MongoStore(client.db());
-        await store.indexes();
-        await store.support.indexes();
-        return store;
+        try {
+            await client.connect();
+            const store = new MongoStore(client.db());
+            await store.indexes();
+            await store.support.indexes();
+            return store;
+        }
+        catch (e) {
+            // (Tried again from the start: this attempt's connections are not left open.)
+            await client.close().catch(() => { });
+            throw e;
+        }
     }
     get accounts() { return this.db.collection('accounts'); }
     get entries() { return this.db.collection('ledger_entries'); }
@@ -35,6 +44,20 @@ export class MongoStore {
     get flagged() { return this.db.collection('flags'); }
     get trialDocs() { return this.db.collection('trials'); }
     get visits() { return this.db.collection('visit_events'); }
+    /** An index removing documents this many seconds old; an existing one with another age is changed in place (creating
+     * it again with a different age is refused). */
+    async expiring(collection, key, seconds) {
+        try {
+            await this.db.collection(collection).createIndex(key, { expireAfterSeconds: seconds });
+        }
+        catch (e) {
+            if (!(e instanceof MongoServerError && (e.code === 85 || e.code === 86)))
+                throw e;
+            // (Changing the age needs collMod, which a hosted database user may not have: the old age stays, and the API starts.)
+            await this.db.command({ collMod: collection, index: { keyPattern: key, expireAfterSeconds: seconds } })
+                .catch((m) => console.error(`${collection}: kept the old expiry (${m instanceof Error ? m.message : String(m)})`));
+        }
+    }
     async indexes() {
         // Sparse: an Apple account without an email, or accounts without a provider, do not collide.
         await this.accounts.createIndex({ email: 1 }, { unique: true, sparse: true });
@@ -49,8 +72,8 @@ export class MongoStore {
         await this.entries.createIndex({ type: 1, createdAt: 1 });
         await this.accounts.createIndex({ createdAt: -1 });
         await this.drives.createIndex({ startedAt: -1 });
-        // Visits are kept 400 days, then removed by MongoDB itself.
-        await this.visits.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 86400 });
+        // Visits are kept VISITS_KEPT_DAYS, then removed by MongoDB itself.
+        await this.expiring('visit_events', { at: 1 }, VISITS_KEPT_DAYS * 86400);
         await this.flagged.createIndex({ resolvedAt: 1, createdAt: -1 });
         await this.drives.createIndex({ accountId: 1, startedAt: -1 });
         await this.codes.createIndex({ tokenHash: 1 });
@@ -206,7 +229,7 @@ export class MongoStore {
             { $sort: { joined: -1 } }, { $limit: 500 }, { $project: { _id: 0, referrerId: '$_id', joined: 1, paid: 1 } }]).toArray();
     }
     async createTrial() {
-        const doc = { _id: randomUUID(), remaining: { lesson: 1, test: 1, free: 1 }, createdAt: new Date() };
+        const doc = { _id: randomUUID(), remaining: freshTrial(), createdAt: new Date() };
         await this.trialDocs.insertOne(doc);
         return out(doc);
     }
