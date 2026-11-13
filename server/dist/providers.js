@@ -72,6 +72,19 @@ export function stripeApi(config) {
             }
             return out;
         },
+        async linkPrices() {
+            // Each active Payment Link's first item: its price, and how often for a subscription.
+            const out = [];
+            for await (const link of stripe.paymentLinks.list({ active: true, limit: 100 })) {
+                const items = await stripe.paymentLinks.listLineItems(link.id, { limit: 1 });
+                const price = items.data[0]?.price;
+                if (price?.unit_amount != null)
+                    out.push({ url: link.url, amountPence: price.unit_amount, currency: price.currency, interval: price.recurring?.interval ?? null });
+                if (out.length >= 50)
+                    break;
+            }
+            return out;
+        },
         async refund(paymentIntent, reason) {
             // (Idempotent at Stripe too: one refund per payment, however often this is asked.)
             const r = await stripe.refunds.create({ payment_intent: paymentIntent, reason: 'duplicate', metadata: { why: reason } }, { idempotencyKey: `dp-refund-${paymentIntent}` });

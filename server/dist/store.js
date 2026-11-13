@@ -6,7 +6,7 @@ import { MemorySupportStore } from './supportStore.js';
  * in tests and local development.
  */
 /** Free drives of each kind (lesson, mock test, free drive) on a device's free try, without signing up. */
-export const TRIAL_EACH = 3;
+export const TRIAL_EACH = 1;
 /** A new free try: all of it left. */
 export const freshTrial = () => ({ lesson: TRIAL_EACH, test: TRIAL_EACH, free: TRIAL_EACH });
 export const DRIVE_OUTCOMES = ['completed', 'collision', 'left-route', 'time-limit', 'abandoned'];
@@ -31,7 +31,7 @@ export class MemoryStore {
     }
     async findAccount(q) {
         const [k, v] = Object.entries(q)[0];
-        const a = [...this.accounts.values()].find(x => x[k] === v);
+        const a = [...this.accounts.values()].find(x => k === 'subscription' ? x.subscriptions?.some(s => s.id === v) : x[k] === v);
         return a ? { ...a, allowances: { ...a.allowances } } : null;
     }
     async createAccount(a) {

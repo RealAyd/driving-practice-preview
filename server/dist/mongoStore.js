@@ -84,7 +84,7 @@ export class MongoStore {
     }
     async findAccount(q) {
         const [k, v] = Object.entries(q)[0];
-        return out(await this.accounts.findOne(k === 'id' ? { _id: v } : { [k]: v }));
+        return out(await this.accounts.findOne(k === 'id' ? { _id: v } : k === 'subscription' ? { 'subscriptions.id': v } : { [k]: v }));
     }
     async createAccount(a) {
         const doc = { ...a, _id: randomUUID(), balance: 0, createdAt: new Date() };
