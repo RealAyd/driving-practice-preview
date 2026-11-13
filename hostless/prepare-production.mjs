@@ -1,7 +1,9 @@
 import './prepare.mjs';
 import fs from 'node:fs';
 const packs=JSON.parse(fs.readFileSync('source/server/packs.json','utf8')).packs;
-if(packs.length!==4||new Set(packs.map(p=>p.links.live)).size!==4)throw new Error('Expected four distinct live Payment Links');
+// Every pack (passes on sale, and retired packs kept so their payments are recognised) has its own live link; something is on sale.
+if(!packs.length||new Set(packs.map(p=>p.links.live)).size!==packs.length)throw new Error('Expected a distinct live Payment Link for every pack');
+if(!packs.some(p=>!p.retired))throw new Error('Nothing on sale');
 for(const pack of packs){
   const url=new URL(pack.links.live);
   if(url.origin!=='https://buy.stripe.com'||url.pathname.startsWith('/test_'))throw new Error('Missing live Payment Link for '+pack.id);
