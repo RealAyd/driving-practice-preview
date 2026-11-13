@@ -1,6 +1,28 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { freshTrial } from './store.js';
 import { Support } from './support.js';
+/** A pass's price as the app says it: "£4.99", "£14.99 a month". */
+export function priceText(p) {
+    const symbol = p.currency.toLowerCase() === 'gbp' ? '£' : `${p.currency.toUpperCase()} `;
+    return `${symbol}${(p.amountPence / 100).toFixed(2)}${p.interval ? ` a ${p.interval}` : ''}`;
+}
+/** Whether a pack can be bought now: it has a link in this mode, is not retired, and its sale has not ended (UK days). */
+export function onSale(p, mode, now = new Date()) {
+    if (p.retired || !p.links[mode])
+        return false;
+    return !p.saleEnds || now.getTime() <= new Date(`${p.saleEnds}T23:59:59Z`).getTime();
+}
+/** The end of an unlimited pass bought (or renewed) now, on top of any time already held. */
+export function passUntil(held, unlimited, now = new Date()) {
+    const from = new Date(Math.max(now.getTime(), held?.getTime() ?? 0));
+    // (A renewing pass gets a day's grace, so a renewal that arrives a little late does not interrupt it.)
+    if (unlimited.monthly) {
+        const d = new Date(from);
+        d.setUTCMonth(d.getUTCMonth() + 1);
+        return new Date(d.getTime() + 86400_000);
+    }
+    return new Date(from.getTime() + (unlimited.days ?? 7) * 86400_000 + (unlimited.renews ? 86400_000 : 0));
+}
 /** What a drive is, from its scenario id (the browser's own description of it is not trusted). */
 export function modeOf(scenario) {
     return scenario.endsWith('-mock-test') ? 'test' : scenario.endsWith('-lesson') ? 'lesson' : 'free';
@@ -121,6 +143,7 @@ export class Service {
             invited: await this.store.countReferred(a.id), rewarded: ledger.filter(e => e.type === 'referral_bonus').reduce((n, e) => n + e.sessionsDelta, 0),
             history: ledger.slice(-20).reverse().map(e => ({ type: e.type, sessions: e.sessionsDelta, amountPence: e.amountPence, reason: e.reason, at: e.createdAt.toISOString() })),
             admin: isAdminEmail(this.config, a.email),
+            unlimitedUntil: a.unlimitedUntil && a.unlimitedUntil.getTime() > Date.now() ? a.unlimitedUntil.toISOString() : null,
             lessonsDone: a.lessonsDone ?? []
         };
     }
@@ -186,6 +209,11 @@ export class Service {
             return { ok: false, reason: 'no-sessions' };
         // The admins (ADMIN_EMAILS) drive without using sessions: recorded as a drive, nothing taken.
         const admin = isAdminEmail(this.config, account.email);
+        // An unlimited pass: every drive, nothing used.
+        if (!admin && account.unlimitedUntil && account.unlimitedUntil.getTime() > Date.now()) {
+            const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'pass', startedAt: new Date(), status: 'started' });
+            return { ok: true, drive, balance: account.balance };
+        }
         if (!admin && account.balance <= 0 && !POTS.some(p => (account.allowances?.[p] ?? 0) > 0))
             return { ok: false, reason: 'no-sessions' };
         const drive = await this.store.createDrive({ accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: admin ? 'admin' : 'sessions',
@@ -286,7 +314,7 @@ export class Service {
         if (status === 'completed' && d.status !== 'completed')
             await this.completeDrive(d);
         // (A drive paid at its start, before sessions were used on completion: one that fails to load gives it back.)
-        if (status === 'failed' && !d.due && d.status === 'started' && d.paidFrom !== 'admin' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
+        if (status === 'failed' && !d.due && d.status === 'started' && d.paidFrom !== 'admin' && d.paidFrom !== 'pass' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
             // A free try's drive goes back to the try (once).
             if (d.paidFrom === 'trial') {
                 await this.store.updateDrive(driveId, { status, refunded: true });
@@ -317,8 +345,26 @@ export class Service {
     // ---- Payments (Stripe Payment Links) ----
     /** The packs on sale in this mode, as the app shows them. */
     packs() {
-        return this.config.packs.map(p => ({ id: p.id, label: p.label, price: p.price, description: p.description ?? '', sessions: p.sessions, allowances: p.allowances ?? {},
-            starter: !!p.starter, onSale: !!p.links[this.config.stripeMode] }));
+        // (Prices come from Stripe, looked up at most hourly in the background; a pack's own price until then.)
+        if (Date.now() - this.pricesAt > 3600_000)
+            void this.refreshPrices();
+        return this.config.packs.filter(p => !p.retired).map(p => ({ id: p.id, label: p.label, price: this.prices.get(p.links[this.config.stripeMode]) ?? p.price,
+            description: p.description ?? '', sessions: p.sessions, allowances: p.allowances ?? {}, starter: !!p.starter,
+            ...(p.unlimited ? { unlimited: p.unlimited } : {}), ...(p.saleEnds ? { saleEnds: p.saleEnds } : {}), onSale: onSale(p, this.config.stripeMode) }));
+    }
+    prices = new Map();
+    pricesAt = 0;
+    async refreshPrices() {
+        this.pricesAt = Date.now();
+        if (!this.stripe?.linkPrices)
+            return;
+        try {
+            for (const p of await this.stripe.linkPrices())
+                this.prices.set(p.url, priceText(p));
+        }
+        catch (e) {
+            console.error(`Stripe prices could not be read: ${e instanceof Error ? e.message.slice(0, 200) : 'error'}`);
+        }
     }
     /**
      * The address to pay for a pack: its Payment Link with this account as the client reference (the webhook credits
@@ -329,7 +375,7 @@ export class Service {
         if (!pack)
             return { error: 'unknown-pack' };
         const link = pack.links[this.config.stripeMode];
-        if (!link)
+        if (!link || !onSale(pack, this.config.stripeMode))
             return { error: 'not-on-sale' };
         const a = await this.store.findAccount({ id: accountId });
         if (!a)
@@ -444,7 +490,36 @@ export class Service {
                     if (r === 'insufficient')
                         await this.store.flag('refund-after-use', { account: purchase.accountId, paymentIntent: pi, pot: grant.pot });
                 }
+                // An unlimited pass refunded in full: it ends now.
+                if (this.config.packs.some(p => p.unlimited && purchase.reason.startsWith(p.label)))
+                    await this.store.updateAccount(purchase.accountId, { unlimitedUntil: new Date() });
                 // A referral reward that this payment earned stays with the referrer (they did nothing wrong).
+                return;
+            }
+            case 'invoice.paid': {
+                // A renewing pass renewed (the first payment is the checkout's): unlimited to the end of the period now paid for.
+                if (o['billing_reason'] === 'subscription_create')
+                    return;
+                const parent = o['parent'];
+                const sub = typeof o['subscription'] === 'string' ? o['subscription'] : parent?.subscription_details?.subscription;
+                const account = sub ? await this.store.findAccount({ subscription: sub }) : null;
+                if (!account) {
+                    await this.store.flag('renewal-no-account', { event: event.id, invoice: o['id'], subscription: sub ?? null });
+                    return;
+                }
+                const packId = account.subscriptions?.find(s => s.id === sub)?.pack;
+                const pack = this.config.packs.find(p => p.id === packId);
+                const pi = typeof o['payment_intent'] === 'string' ? o['payment_intent'] : undefined;
+                const r = await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: 'purchase', sessionsDelta: 0, amountPence: Number(o['amount_paid'] ?? 0),
+                    currency: String(o['currency'] ?? 'gbp'), actor: 'stripe', stripe: { event: event.id, ...(pi ? { paymentIntent: pi } : {}) }, reason: `${pack?.label ?? 'Pass'} renewed`,
+                    idempotencyKey: `invoice:${String(o['id'])}` });
+                if (r !== 'ok')
+                    return;
+                // The period paid for, from the invoice (weekly or monthly alike); the pack's own length if Stripe does not say.
+                const lines = o['lines'];
+                const end = Number(lines?.data?.[0]?.period?.end ?? 0) * 1000;
+                const until = end > Date.now() ? new Date(Math.max(end + 86400_000, account.unlimitedUntil?.getTime() ?? 0)) : passUntil(account.unlimitedUntil, pack?.unlimited ?? { monthly: true });
+                await this.store.updateAccount(account.id, { unlimitedUntil: until });
                 return;
             }
             case 'charge.dispute.created':
@@ -513,11 +588,17 @@ export class Service {
         // A Starter Pass is once per account: a second one grants nothing (its payment is refunded).
         const lost = pack.starter && await this.store.claimStarter(account.id, sessionId) === 'lost';
         // The payment itself (the money, and the pack's sessions).
-        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: lost ? 0 : pack.sessions, amountPence: amount,
+        const recorded = await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: amount > 0 ? 'purchase' : 'promo', sessionsDelta: lost ? 0 : pack.sessions, amountPence: amount,
             currency, actor: 'stripe', stripe, reason: pack.label, idempotencyKey: `checkout:${sessionId}` });
         if (lost) {
             await this.duplicateStarter(account.id, sessionId, pi, amount, currency);
             return;
+        }
+        // An unlimited pass: time on the account (once per checkout, whichever of the webhook or the return from paying is first).
+        if (pack.unlimited && recorded === 'ok') {
+            const sub = typeof o['subscription'] === 'string' ? o['subscription'] : undefined;
+            await this.store.updateAccount(account.id, { unlimitedUntil: passUntil(account.unlimitedUntil, pack.unlimited),
+                ...(sub ? { subscriptions: [...(account.subscriptions ?? []).filter(s => s.id !== sub), { id: sub, pack: pack.id }] } : {}) });
         }
         if (pack.starter) {
             for (const pot of POTS) {
