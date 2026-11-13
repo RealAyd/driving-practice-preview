@@ -82,6 +82,7 @@ jobs:
           cp source-provenance.json .release/dist-sim/build-info.json
           rm -f .release/dist-sim/CNAME
           node --input-type=module -e "import fs from 'node:fs';fs.writeFileSync('.release/dist-sim/access.json',JSON.stringify({gate:true}))"
+          node hostless/noindex.mjs .release/dist-sim
       - name: Publish isolated release branch
         id: release
         env:
