@@ -11,6 +11,10 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const sameHash = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 /** Referral codes: no 0/O or 1/I/L, so they can be read out. */
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+/** Invite a friend: each of you gets this many sessions (the friend on joining, the inviter once the friend completes a drive). */
+export const REFERRAL_SESSIONS = 2;
+/** The most an inviter earns from invites in any 30 days. */
+export const REFERRAL_CAP_30_DAYS = 10;
 const referralCode = () => Array.from({ length: 8 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
 export const normaliseEmail = (email) => email.trim().toLowerCase();
 /** One person behind several aliases: Gmail ignores dots and anything after +; other providers commonly ignore +. */
@@ -100,8 +104,8 @@ export class Service {
             return;
         }
         await this.store.updateAccount(account.id, { referredBy: referrer.id });
-        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: 'referral_free_drive', sessionsDelta: 1, amountPence: 0, currency: 'gbp',
-            actor: 'system', reason: `Free drive: invited by ${referrer.referralCode}`, idempotencyKey: `referral-free:${account.id}` });
+        await this.store.appendLedger({ product: 'simulator', accountId: account.id, type: 'referral_free_drive', sessionsDelta: REFERRAL_SESSIONS, amountPence: 0, currency: 'gbp',
+            actor: 'system', reason: `Free drives: invited by ${referrer.referralCode}`, idempotencyKey: `referral-free:${account.id}` });
         // Many sign-ups on one code in a day are for a person to look at (not refused).
         if (!await this.store.rateHit(`referrals:${referrer.id}`, 24 * 3600_000, 10))
             await this.store.flag('referral-volume', { referrer: referrer.id, code });
@@ -114,7 +118,7 @@ export class Service {
         return {
             // (The id goes on the Payment Link as client_reference_id, so the webhook knows whose payment it is.)
             id: a.id, email: a.email, balance: a.balance, allowances: Object.fromEntries(POTS.map(p => [p, a.allowances?.[p] ?? 0])), starterBought: !!a.starterBought, referralCode: a.referralCode,
-            invited: await this.store.countReferred(a.id), rewarded: ledger.filter(e => e.type === 'referral_bonus').length,
+            invited: await this.store.countReferred(a.id), rewarded: ledger.filter(e => e.type === 'referral_bonus').reduce((n, e) => n + e.sessionsDelta, 0),
             history: ledger.slice(-20).reverse().map(e => ({ type: e.type, sessions: e.sessionsDelta, amountPence: e.amountPence, reason: e.reason, at: e.createdAt.toISOString() })),
             admin: isAdminEmail(this.config, a.email),
             lessonsDone: a.lessonsDone ?? []
@@ -219,6 +223,23 @@ export class Service {
             paidFrom = 'sessions';
         }
         await this.store.updateDrive(d.id, { paidFrom, due: false });
+        await this.rewardInviter(d.accountId);
+    }
+    /** A friend who joined with an invite link has completed a drive: whoever invited them gets their sessions (once per friend, up to the cap). */
+    async rewardInviter(accountId) {
+        const friend = await this.store.findAccount({ id: accountId });
+        if (!friend?.referredBy)
+            return;
+        const key = `referral-bonus:${friend.id}`;
+        const earned = await this.store.ledger({ accountId: friend.referredBy, type: 'referral_bonus' });
+        if (earned.some(e => e.idempotencyKey === key))
+            return;
+        const recent = earned.filter(e => e.createdAt.getTime() > Date.now() - 30 * 86400_000).reduce((n, e) => n + e.sessionsDelta, 0);
+        // (Over the cap: nothing now; the friend's next completed drive tries again.)
+        if (recent + REFERRAL_SESSIONS > REFERRAL_CAP_30_DAYS)
+            return;
+        await this.store.appendLedger({ product: 'simulator', accountId: friend.referredBy, type: 'referral_bonus', sessionsDelta: REFERRAL_SESSIONS, amountPence: 0, currency: 'gbp',
+            actor: 'system', reason: 'Free drives: a friend you invited completed a drive', idempotencyKey: key });
     }
     // ---- The free try (no sign-up): TRIAL_EACH lessons, mock tests and free drives per device ----
     /** What is left of a device's free try (all of it before the first drive). */
@@ -495,14 +516,8 @@ export class Service {
                         reason: `${pack.label}: ${pot === 'test' ? 'mock test' : pot === 'free' ? 'free drive' : 'lesson'}`, idempotencyKey: `checkout:${sessionId}:${pot}` });
             }
         }
-        // A payment with money: the person who invited them gets their free session (once per invited person).
-        if (amount > 0) {
-            if (!account.firstPaidAt)
-                await this.store.updateAccount(account.id, { firstPaidAt: new Date() });
-            if (account.referredBy)
-                await this.store.appendLedger({ product: 'simulator', accountId: account.referredBy, type: 'referral_bonus', sessionsDelta: 1, amountPence: 0, currency: 'gbp',
-                    actor: 'system', reason: 'Free session: someone you invited bought sessions', idempotencyKey: `referral-bonus:${account.id}` });
-        }
+        if (amount > 0 && !account.firstPaidAt)
+            await this.store.updateAccount(account.id, { firstPaidAt: new Date() });
     }
     /**
      * A second Starter Pass (the Payment Link is public, so it can be paid twice): nothing is granted and the payment
