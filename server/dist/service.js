@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { profileOf } from './profile.js';
+import { centreName, centreOf, cleanName, shown, tally, weekStart } from './board.js';
 import { freshTrial } from './store.js';
 import { Support } from './support.js';
 /** A pass's price as the app says it: "£4.99", "£14.99 a month". */
@@ -346,6 +347,94 @@ export class Service {
     /** The signed-in learner's profile (profile.ts), from their last 500 drives. */
     async profile(accountId) {
         return profileOf(await this.store.listDrives({ owner: accountId, limit: 500 }));
+    }
+    // ---- Leaderboards (board.ts) ----
+    /** The learner chooses whether and how they show: their own or a made-up name, and a driving school if they like. */
+    async setBoard(accountId, raw) {
+        const a = await this.store.findAccount({ id: accountId });
+        if (!a)
+            return { error: 'name' };
+        const show = raw['show'] === true, name = cleanName(raw['name']);
+        if (show && !name)
+            return { error: 'name' };
+        const schoolRaw = typeof raw['school'] === 'string' ? raw['school'].trim() : '';
+        const school = schoolRaw ? cleanName(schoolRaw, 2, 40) : null;
+        if (schoolRaw && !school)
+            return { error: 'school' };
+        const board = { show, name: name ?? a.board?.name ?? '', ...(school ? { school } : {}), ...(a.board?.hidden ? { hidden: true } : {}) };
+        await this.store.updateAccount(accountId, { board });
+        return { ok: true, board };
+    }
+    /** One centre's board for one week: the top ten, where the learner is, and last week's leader. */
+    async board(accountId, centreKey) {
+        const now = new Date(), from = weekStart(now), lastFrom = weekStart(new Date(from.getTime() - 86400_000));
+        const mine = await this.store.listDrives({ owner: accountId, limit: 50 });
+        const centre = centreKey ?? (mine.find(d => d.result?.test) ? centreOf(mine.find(d => d.result?.test).scenario) : null);
+        const a = await this.store.findAccount({ id: accountId });
+        const settings = a?.board ?? { show: false, name: '' };
+        if (!centre)
+            return { centre: null, settings, top: [], me: null, leader: null, week: { from: from.toISOString() } };
+        const drives = await this.store.listDrives({ since: lastFrom, limit: 20000 });
+        const thisWeek = tally(drives.filter(d => d.endedAt && d.endedAt >= from), centre);
+        const lastWeek = tally(drives.filter(d => d.endedAt && d.endedAt >= lastFrom && d.endedAt < from), centre);
+        const people = new Map((await this.store.findAccounts([...new Set([...thisWeek.slice(0, 10), ...lastWeek.slice(0, 1)].map(r => r.owner))])).map(x => [x.id, x]));
+        const meAt = thisWeek.findIndex(r => r.owner === accountId);
+        return { centre, name: centreName(centre), week: { from: from.toISOString() }, settings,
+            top: thisWeek.slice(0, 10).map((r, i) => ({ rank: i + 1, ...shown(people.get(r.owner)), points: r.points, tests: r.tests, passes: r.passes, me: r.owner === accountId })),
+            me: meAt < 0 ? null : { rank: meAt + 1, points: thisWeek[meAt].points, of: thisWeek.length },
+            leader: lastWeek[0] ? { ...shown(people.get(lastWeek[0].owner)), points: lastWeek[0].points } : null };
+    }
+    /** Admin: each centre's leader for a week (last week unless `weekOf` says), with whether their prize was given. */
+    async leaders(weekOf) {
+        const from = weekStart(weekOf ?? new Date(Date.now() - 7 * 86400_000)), to = new Date(from.getTime() + 7 * 86400_000 + 3 * 3600_000);
+        const drives = (await this.store.listDrives({ since: new Date(from.getTime() - 86400_000), limit: 20000 })).filter(d => d.endedAt && d.endedAt >= from && weekStart(d.endedAt) <= from && d.endedAt < to);
+        const centres = [...new Set(drives.map(d => centreOf(d.scenario)))];
+        const awarded = new Set((await this.store.ledger({ type: 'promo' })).map(e => e.idempotencyKey));
+        const out = [];
+        for (const centre of centres) {
+            const rows = tally(drives, centre).slice(0, 3);
+            if (!rows.length)
+                continue;
+            const people = new Map((await this.store.findAccounts(rows.map(r => r.owner))).map(x => [x.id, x]));
+            out.push({ centre, name: centreName(centre), week: from.toISOString(), awarded: awarded.has(`leader:${from.toISOString()}:${centre}`),
+                top: rows.map(r => ({ account: r.owner, email: people.get(r.owner)?.email ?? null, ...shown(people.get(r.owner)), points: r.points, tests: r.tests, passes: r.passes,
+                    referredBy: people.get(r.owner)?.referredBy ?? null })) });
+        }
+        return { week: from.toISOString(), centres: out.sort((a, b) => b.top[0].points - a.top[0].points) };
+    }
+    /** Admin: give a centre's leader of the week their prize (7 unlimited days), and the friend who invited them too; once. */
+    async awardLeader(by, centre, week) {
+        const from = new Date(week);
+        if (Number.isNaN(from.getTime()))
+            return { error: 'not-found' };
+        const list = await this.leaders(from);
+        const c = list.centres.find(x => x.centre === centre);
+        const winner = c?.top[0];
+        if (!c || !winner)
+            return { error: 'not-found' };
+        const key = `leader:${list.week}:${centre}`;
+        const grant = async (accountId, reason, idempotencyKey) => {
+            const r = await this.store.appendLedger({ product: 'simulator', accountId, type: 'promo', sessionsDelta: 0, amountPence: 0, currency: 'gbp', actor: 'admin', by, reason, idempotencyKey });
+            if (r !== 'ok')
+                return false;
+            const a = await this.store.findAccount({ id: accountId });
+            await this.store.updateAccount(accountId, { unlimitedUntil: passUntil(a?.unlimitedUntil, { days: 7 }) });
+            return true;
+        };
+        if (!await grant(winner.account, `Leader of the week: ${c.name} (7 days unlimited)`, key))
+            return { error: 'already' };
+        let referrer = null;
+        if (winner.referredBy && await grant(winner.referredBy, `A friend you invited was leader of the week: ${c.name} (7 days unlimited)`, `${key}:ref`))
+            referrer = winner.referredBy;
+        return { ok: true, winner: winner.account, referrer };
+    }
+    /** Admin: hide (or show again) a learner's chosen name on the boards. */
+    async hideOnBoard(accountId, hidden) {
+        const a = await this.store.findAccount({ id: accountId });
+        if (!a)
+            return false;
+        await this.store.updateAccount(accountId, { board: { ...(a.board ?? { show: false, name: '' }), hidden } });
+        return true;
     }
     // ---- Payments (Stripe Payment Links) ----
     /** The packs on sale in this mode, as the app shows them. */

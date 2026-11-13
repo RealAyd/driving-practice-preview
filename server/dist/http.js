@@ -123,6 +123,15 @@ export function handler(service, outbox) {
             // The learner's profile: their drives, best mock test, weak areas and progress.
             if (method === 'GET' && path === '/api/profile')
                 return send(res, 200, await service.profile(signedIn()));
+            // Leaderboards: a centre's board this week; the learner's own settings.
+            if (method === 'GET' && path === '/api/board') {
+                const c = url.searchParams.get('centre');
+                return send(res, 200, await service.board(signedIn(), c && /^[a-z0-9-]{2,60}$/.test(c) ? c : undefined));
+            }
+            if (method === 'POST' && path === '/api/board/me') {
+                const r = await service.setBoard(signedIn(), await json(req));
+                return send(res, 'error' in r ? 400 : 200, r);
+            }
             if (method === 'GET' && path === '/api/me') {
                 const me = accountId ? await service.me(accountId) : null;
                 if (accountId && !me)
@@ -334,6 +343,19 @@ export function handler(service, outbox) {
                 }
                 if (method === 'GET' && path === '/api/admin/referrals')
                     return send(res, 200, await admin.referrals());
+                if (method === 'GET' && path === '/api/admin/leaders') {
+                    const w = url.searchParams.get('week');
+                    return send(res, 200, await service.leaders(w ? new Date(w) : undefined));
+                }
+                if (method === 'POST' && path === '/api/admin/leaders/award') {
+                    const b = await json(req);
+                    const r = await service.awardLeader(by, String(b['centre'] ?? ''), String(b['week'] ?? ''));
+                    return send(res, 'error' in r ? (r.error === 'already' ? 409 : 404) : 200, r);
+                }
+                if (method === 'POST' && path === '/api/admin/board/hide') {
+                    const b = await json(req);
+                    return await service.hideOnBoard(String(b['account'] ?? ''), b['hidden'] !== false) ? send(res, 200, { ok: true }) : send(res, 404, { error: 'not-found' });
+                }
                 return send(res, 404, { error: 'not-found' });
             }
             // ---- Local development and tests only ----

@@ -61,7 +61,7 @@ p:empty{display:none}
 <button id="theme" type="button">Light / dark</button><button id="signout" type="button" hidden>Sign out</button></header>
 <nav class="tabs" id="tabs" hidden role="tablist">
 <button data-tab="overview" aria-selected="true">Overview</button><button data-tab="visitors">Visitors</button><button data-tab="support">Support <span id="support-count"></span></button><button data-tab="customers">Customers</button>
-<button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button>
+<button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button><button data-tab="leaders">Leaders</button>
 </nav>
 <main>
 <section id="signin" class="signin card" hidden>
@@ -143,6 +143,10 @@ p:empty{display:none}
 <p class="soft small" id="visits-note"></p>
 </section>
 
+<section data-panel="leaders" hidden>
+<div class="card scroll"><p class="small soft"><select id="leaders-week"><option value="last">Last week</option><option value="this">This week (so far)</option></select> <span id="leaders-note"></span></p>
+<table><thead><tr><th>Centre</th><th>Leader</th><th class="num">Points</th><th class="num">Tests · passes</th><th>Prize</th><th></th></tr></thead><tbody id="leader-rows"></tbody></table></div>
+</section>
 <section data-panel="referrals" hidden>
 <div class="card scroll"><p class="small soft" id="referrals-note"></p><table><thead><tr><th>Referrer</th><th>Code</th><th class="num">Joined</th><th class="num">Paid</th><th class="num">Sessions earned</th></tr></thead><tbody id="referral-rows"></tbody></table></div>
 </section>
@@ -207,7 +211,7 @@ $('code-form').onsubmit=async e=>{
 $('signout').onclick=async()=>{await api('/api/auth/logout',{}).catch(()=>{});location.reload()};
 
 // ---- Tabs ----
-const loaders={overview:()=>api('/api/admin/overview'),visitors:()=>api(`/api/admin/visits?days=${$('visits-days').value}`),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals')};
+const loaders={overview:()=>api('/api/admin/overview'),visitors:()=>api(`/api/admin/visits?days=${$('visits-days').value}`),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals'),leaders:()=>api(`/api/admin/leaders${$('leaders-week').value==='this'?`?week=${new Date().toISOString()}`:''}`)};
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
   for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
@@ -217,6 +221,7 @@ function show(tab,data){
   panels.forEach(p=>p.hidden=p.dataset.panel!==tab);
   if(tab==='overview')renderOverview(data);
   if(tab==='referrals')renderReferrals(data);
+  if(tab==='leaders')renderLeaders(data);
   if(tab==='visitors')renderVisits(data);
 }
 
@@ -368,10 +373,28 @@ function renderVisits(v){
   $('visits-note').textContent=`From the app's own visit records (no third party; not kept for devices that ask not to be tracked). A visit is one opening of the app; "stay" is from opening to the last thing seen while on screen. Updated ${when(v.at)}.`;
 }
 function renderReferrals(r){
-  $('referrals-note').textContent=`${r.referrers.length} people have brought in sign-ups. A referrer earns one session when someone they invited first pays with money; ${r.refused} invites were not counted (own link or an existing person).`;
+  $('referrals-note').textContent=`${r.referrers.length} people have brought in sign-ups. A friend gets 2 free drives on joining; the person who invited them gets 2 once the friend completes a drive (up to 10 in 30 days). ${r.refused} invites were not counted (own link or an existing person).`;
   $('referral-rows').replaceChildren(...r.referrers.map(x=>el('tr',{class:'link',on:{click:()=>openCustomer(x.id)}},
     el('td',{},x.email??x.id),el('td',{},x.code),el('td',{class:'num'},x.joined),el('td',{class:'num'},x.paid),el('td',{class:'num'},x.rewards))),
     ...(r.referrers.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No referrals yet.'))]));
+}
+// ---- Leaders: each centre's leader of the week; give the prize (7 unlimited days, to the friend who invited them too) ----
+$('leaders-week').onchange=()=>showTab('leaders');
+function renderLeaders(l){
+  const week=new Date(l.week).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  const last=$('leaders-week').value!=='this';
+  $('leaders-note').textContent=`Week from ${week}. Check a leader's drives (open them) before giving the prize; a name you hide shows as Learner.`;
+  $('leader-rows').replaceChildren(...l.centres.flatMap(c=>c.top.map((r,i)=>el('tr',{},
+    el('td',{},i?'':c.name),
+    el('td',{class:'link',on:{click:()=>openCustomer(r.account)}},`${i+1}. ${r.name}${r.school?` (${r.school})`:''} · ${r.email??r.account}${r.referredBy?' · invited':''}`),
+    el('td',{class:'num'},r.points),el('td',{class:'num'},`${r.tests} · ${r.passes}`),
+    el('td',{},i?'':c.awarded?'Given':last?el('button',{type:'button',on:{click:async e=>{
+      if(!confirm(`Give ${r.name} (${r.email??r.account}) 7 days unlimited${r.referredBy?', and the friend who invited them too':''}?`))return;
+      e.target.disabled=true;
+      try{await api('/api/admin/leaders/award',{centre:c.centre,week:c.week});showTab('leaders')}catch(err){alert(`Not given: ${err.code}`);e.target.disabled=false}
+    }}},'Give prize'):'After the week'),
+    el('td',{},r.name==='Learner'?'':el('button',{type:'button',on:{click:async()=>{if(confirm(`Hide the name "${r.name}" from the boards?`)){await api('/api/admin/board/hide',{account:r.account,hidden:true});showTab('leaders')}}}},'Hide name'))))),
+    ...(l.centres.length?[]:[el('tr',{},el('td',{colSpan:6,class:'soft'},'No mock tests this week yet.'))]));
 }
 // ---- Support ----
 const PRI={highest:'Highest',high:'High',normal:'Normal',lower:'Lower'};
