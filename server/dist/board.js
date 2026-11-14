@@ -28,6 +28,8 @@ export function centreOf(scenario) {
 }
 /** A centre's name for people ("area-hull-test-centre" → "Hull"). */
 export function centreName(key) {
+    if (key === UK)
+        return 'UK';
     const words = key.replace(/^area-/, '').replace(/-test-centre$/, '').split('-').filter(Boolean);
     return /\d/.test(key) ? words.join(' ').toUpperCase() : words.map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
@@ -56,10 +58,16 @@ export function pointsOf(d) {
         return null;
     return Math.max(0, POINTS.finished + (t.passed ? POINTS.pass : 0) - t.driving * POINTS.perFault);
 }
-/** Each learner's total at one centre over the given drives (at most five tests a UK day count). */
+/** The whole of the UK's board, across every centre. */
+export const UK = 'uk';
+/** The UK board's prizes by place: days of unlimited drives (1st, 2nd, 3rd), and for whoever invited the winner. */
+export const UK_PRIZES = { days: [30, 7, 7], referrer: 7 };
+/** Top X% for a place: 1st of 200 is the top 1%. */
+export const percentile = (rank, of) => Math.max(1, Math.ceil(rank / of * 100));
+/** Each learner's total at one centre (or the UK) over the given drives (at most five tests a UK day count). */
 export function tally(drives, centre) {
     const rows = new Map(), perDay = new Map();
-    for (const d of [...drives].filter(d => centreOf(d.scenario) === centre && d.endedAt).sort((a, b) => a.endedAt.getTime() - b.endedAt.getTime())) {
+    for (const d of [...drives].filter(d => (centre === UK || centreOf(d.scenario) === centre) && d.endedAt).sort((a, b) => a.endedAt.getTime() - b.endedAt.getTime())) {
         const p = pointsOf(d);
         if (p === null)
             continue;

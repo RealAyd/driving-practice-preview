@@ -389,7 +389,7 @@ function renderLeaders(l){
     el('td',{class:'link',on:{click:()=>openCustomer(r.account)}},`${i+1}. ${r.name}${r.school?` (${r.school})`:''} · ${r.email??r.account}${r.referredBy?' · invited':''}`),
     el('td',{class:'num'},r.points),el('td',{class:'num'},`${r.tests} · ${r.passes}`),
     el('td',{},i?'':c.awarded?'Given':last?el('button',{type:'button',on:{click:async e=>{
-      if(!confirm(`Give ${r.name} (${r.email??r.account}) 7 days unlimited${r.referredBy?', and the friend who invited them too':''}?`))return;
+      if(!confirm(c.centre==='uk'?`Give the UK's top three 30, 7 and 7 days unlimited${r.referredBy?', and 7 to the friend who invited the winner':''}?`:`Give ${r.name} (${r.email??r.account}) 7 days unlimited${r.referredBy?', and the friend who invited them too':''}?`))return;
       e.target.disabled=true;
       try{await api('/api/admin/leaders/award',{centre:c.centre,week:c.week});showTab('leaders')}catch(err){alert(`Not given: ${err.code}`);e.target.disabled=false}
     }}},'Give prize'):'After the week'),
