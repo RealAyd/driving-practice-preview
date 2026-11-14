@@ -64,6 +64,8 @@ export const UK = 'uk';
 export const UK_PRIZES = { days: [30, 7, 7], referrer: 7 };
 /** Top X% for a place: 1st of 200 is the top 1%. */
 export const percentile = (rank, of) => Math.max(1, Math.ceil(rank / of * 100));
+/** The badge a percentile earns: top 1%, 10% or 25%; none below that. */
+export const badgeOf = (top) => top <= 1 ? 1 : top <= 10 ? 10 : top <= 25 ? 25 : null;
 /** Each learner's total at one centre (or the UK) over the given drives (at most five tests a UK day count). */
 export function tally(drives, centre) {
     const rows = new Map(), perDay = new Map();
