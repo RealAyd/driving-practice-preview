@@ -128,6 +128,11 @@ export function handler(service, outbox) {
                 const c = url.searchParams.get('centre');
                 return send(res, 200, await service.board(signedIn(), c && /^[a-z0-9-]{2,60}$/.test(c) ? c : undefined));
             }
+            if (method === 'POST' && path === '/api/me/marketing') {
+                const b = await json(req);
+                await service.setMarketing(signedIn(), b['consent'] === true, b['source'] === 'signup' ? 'signup' : 'account');
+                return send(res, 200, { ok: true });
+            }
             if (method === 'POST' && path === '/api/board/me') {
                 const r = await service.setBoard(signedIn(), await json(req));
                 return send(res, 'error' in r ? 400 : 200, r);
@@ -314,6 +319,15 @@ export function handler(service, outbox) {
                     return send(res, await support.retry(retry[1]) ? 200 : 404, {});
                 if (method === 'GET' && path === '/api/admin/customers')
                     return send(res, 200, await admin.customers(url.searchParams.get('q') ?? ''));
+                const gift = /^\/api\/admin\/customers\/([\w-]{8,64})\/unlimited$/.exec(path);
+                if (gift && method === 'POST') {
+                    const b = await json(req);
+                    const r = await admin.unlimited(by, gift[1], { period: b['period'], reason: b['reason'], requestId: b['requestId'] });
+                    if ('error' in r)
+                        return send(res, r.error === 'not-found' ? 404 : 400, r);
+                    console.log(`Admin unlimited: ${r.result} ${String(b['period'])} on ${gift[1]}`);
+                    return send(res, 200, r);
+                }
                 const customer = /^\/api\/admin\/customers\/([\w-]{8,64})(\/adjust)?$/.exec(path);
                 if (customer && method === 'GET' && !customer[2]) {
                     const c = await admin.customer(customer[1]);
@@ -333,6 +347,10 @@ export function handler(service, outbox) {
                         return send(res, 200, p);
                     res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="payments-${p.since.slice(0, 10)}-to-${new Date(new Date(p.until).getTime() - 1).toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
                     return res.end(admin.paymentsCsv(p));
+                }
+                if (method === 'GET' && path === '/api/admin/marketing') {
+                    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="offers-emails-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+                    return res.end(await admin.marketingCsv());
                 }
                 if (method === 'GET' && path === '/api/admin/flags')
                     return send(res, 200, await admin.flags(url.searchParams.get('state') ?? 'open'));

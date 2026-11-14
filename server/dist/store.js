@@ -126,7 +126,7 @@ export class MemoryStore {
     newest() { return [...this.accounts.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); }
     async listAccounts(q) {
         const t = q.search?.trim().toLowerCase();
-        return this.newest().filter(a => !t || a.email?.includes(t) || a.referralCode.toLowerCase() === t || a.id === t).slice(0, q.limit).map(a => ({ ...a, allowances: { ...a.allowances } }));
+        return this.newest().filter(a => !q.marketing || a.marketing?.consent).filter(a => !t || a.email?.includes(t) || a.referralCode.toLowerCase() === t || a.id === t).slice(0, q.limit).map(a => ({ ...a, allowances: { ...a.allowances } }));
     }
     async findAccounts(ids) { return ids.flatMap(id => { const a = this.accounts.get(id); return a ? [{ ...a }] : []; }); }
     async countAccounts(q) {

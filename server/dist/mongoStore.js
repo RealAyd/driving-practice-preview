@@ -207,7 +207,7 @@ export class MongoStore {
     }
     async listAccounts(q) {
         const t = q.search?.trim().toLowerCase();
-        const filter = t ? { $or: [{ email: { $regex: literal(t) } }, { referralCode: t.toUpperCase() }, { _id: t }] } : {};
+        const filter = { ...(t ? { $or: [{ email: { $regex: literal(t) } }, { referralCode: t.toUpperCase() }, { _id: t }] } : {}), ...(q.marketing ? { 'marketing.consent': true } : {}) };
         return (await this.accounts.find(filter).sort({ createdAt: -1 }).limit(q.limit).toArray()).map(d => out(d));
     }
     async findAccounts(ids) {

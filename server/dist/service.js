@@ -15,7 +15,11 @@ export function onSale(p, mode, now = new Date()) {
     return !p.saleEnds || now.getTime() <= new Date(`${p.saleEnds}T23:59:59Z`).getTime();
 }
 /** The end of an unlimited pass bought (or renewed) now, on top of any time already held. */
+/** Unlimited for life: the end date stored for it. */
+export const LIFETIME = new Date('9999-12-31T00:00:00Z');
 export function passUntil(held, unlimited, now = new Date()) {
+    if (held && held.getTime() >= LIFETIME.getTime())
+        return held;
     const from = new Date(Math.max(now.getTime(), held?.getTime() ?? 0));
     // (A renewing pass gets a day's grace, so a renewal that arrives a little late does not interrupt it.)
     if (unlimited.monthly) {
@@ -146,8 +150,13 @@ export class Service {
             history: ledger.slice(-20).reverse().map(e => ({ type: e.type, sessions: e.sessionsDelta, amountPence: e.amountPence, reason: e.reason, at: e.createdAt.toISOString() })),
             admin: isAdminEmail(this.config, a.email),
             unlimitedUntil: a.unlimitedUntil && a.unlimitedUntil.getTime() > Date.now() ? a.unlimitedUntil.toISOString() : null,
-            lessonsDone: a.lessonsDone ?? []
+            lessonsDone: a.lessonsDone ?? [],
+            marketing: !!a.marketing?.consent
         };
+    }
+    /** Offers and news by email: on only when the learner ticks it (at sign-up or in their account), off again any time. */
+    async setMarketing(accountId, consent, source) {
+        await this.store.updateAccount(accountId, { marketing: { consent, at: new Date(), source } });
     }
     /** Adds lessons finished (on any device) to the account's; returns them all. */
     async saveProgress(accountId, lessons) {
