@@ -1,4 +1,4 @@
-import { isAdminEmail } from './service.js';
+import { isAdminEmail, LIFETIME, passUntil } from './service.js';
 /** What counts as money in or out on the Payments tab. */
 const MONEY_TYPES = ['purchase', 'promo', 'refund', 'starter_duplicate'];
 const POTS = ['lesson', 'test', 'free'];
@@ -7,7 +7,8 @@ const DAY = 86400_000;
 export const MAX_ADJUST = 50;
 const allowancesOf = (a) => Object.fromEntries(POTS.map(p => [p, a.allowances?.[p] ?? 0]));
 const summary = (a) => ({ id: a.id, email: a.email, createdAt: a.createdAt.toISOString(), balance: a.balance, allowances: allowancesOf(a),
-    firstPaidAt: a.firstPaidAt?.toISOString() ?? null, starterBought: !!a.starterBought, referralCode: a.referralCode, referred: !!a.referredBy });
+    firstPaidAt: a.firstPaidAt?.toISOString() ?? null, starterBought: !!a.starterBought, referralCode: a.referralCode, referred: !!a.referredBy,
+    unlimitedUntil: a.unlimitedUntil && a.unlimitedUntil.getTime() > Date.now() ? a.unlimitedUntil.toISOString() : null });
 const entryOut = (e) => ({ id: e.id, type: e.type, sessionsDelta: e.sessionsDelta, pot: e.pot ?? null, amountPence: e.amountPence, currency: e.currency,
     reason: e.reason, actor: e.actor, by: e.by ?? null, stripe: e.stripe ?? null, accountId: e.accountId, createdAt: e.createdAt.toISOString() });
 /** A spreadsheet cell: quoted, and text that a spreadsheet would run as a formula is made plain. */
@@ -89,6 +90,33 @@ export class Admin {
             return { error: 'insufficient' };
         const a = (await this.store.findAccount({ id: accountId }));
         return { result: r, balance: a.balance, allowances: allowancesOf(a) };
+    }
+    /**
+     * Gives unlimited drives for a period (added after any they already have, so a paid pass is never shortened), for
+     * life, or ends it now. Recorded in the ledger with who and why; `requestId` makes a repeat record once.
+     */
+    async unlimited(by, accountId, input) {
+        const DAYS = { '7d': 7, '30d': 30, '1y': 365 };
+        const period = typeof input.period === 'string' ? input.period : '', reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+        if (!(period in DAYS) && period !== 'life' && period !== 'end')
+            return { error: 'period' };
+        if (reason.length < 3 || reason.length > 200)
+            return { error: 'reason' };
+        const requestId = typeof input.requestId === 'string' && /^[\w-]{8,64}$/.test(input.requestId) ? input.requestId : null;
+        if (!requestId)
+            return { error: 'request' };
+        const a = await this.store.findAccount({ id: accountId });
+        if (!a)
+            return { error: 'not-found' };
+        const label = period === 'life' ? 'Unlimited for life' : period === 'end' ? 'Unlimited ended' : `Unlimited for ${DAYS[period]} days`;
+        const r = await this.store.appendLedger({ product: 'simulator', accountId, type: 'adjustment', sessionsDelta: 0, amountPence: 0, currency: 'gbp',
+            actor: 'admin', by, reason: `${label}: ${reason}`, idempotencyKey: `unlimited:${requestId}` });
+        if (r === 'ok') {
+            const until = period === 'life' ? LIFETIME : period === 'end' ? new Date() : passUntil(a.unlimitedUntil, { days: DAYS[period] });
+            await this.store.updateAccount(accountId, { unlimitedUntil: until });
+        }
+        const now = (await this.store.findAccount({ id: accountId })).unlimitedUntil;
+        return { result: r === 'ok' ? 'ok' : 'duplicate', unlimitedUntil: now && now.getTime() > Date.now() ? now.toISOString() : null };
     }
     /** Money in and out between two dates (inclusive, UK calendar days are close enough to UTC for this view). */
     async payments(fromDay, toDay, now = new Date()) {

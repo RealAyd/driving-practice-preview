@@ -91,6 +91,10 @@ p:empty{display:none}
 <select id="adjust-pot" aria-label="What they are for"><option value="">General sessions</option><option value="lesson">Starter: lesson</option><option value="test">Starter: mock test</option><option value="free">Starter: free drive</option></select>
 <input id="adjust-reason" maxlength="200" placeholder="Reason (shown in the ledger)" style="flex:1;min-width:200px" required><button class="primary">Record</button></form>
 <div id="adjust-msg"></div></div>
+<div class="card"><h2>Unlimited drives</h2>
+<form class="row" id="gift"><select id="gift-period" aria-label="How long"><option value="7d">7 days</option><option value="30d">30 days</option><option value="1y">1 year</option><option value="life">Lifetime</option><option value="end">End unlimited now</option></select>
+<input id="gift-reason" maxlength="200" placeholder="Reason (shown in the ledger)" style="flex:1;min-width:200px" required><button class="primary">Record</button></form>
+<div id="gift-msg"></div></div>
 <div class="card scroll"><h2>Ledger</h2><table><thead><tr><th>When</th><th>Type</th><th class="num">Sessions</th><th>For</th><th class="num">Money</th><th>Reason</th><th>By</th></tr></thead><tbody id="ledger-rows"></tbody></table></div>
 <div class="card scroll"><h2>Recent drives</h2><table><thead><tr><th>Started</th><th>Scenario</th><th>Kind</th><th>Status</th><th>Paid from</th></tr></thead><tbody id="drive-rows"></tbody></table></div>
 </section>
@@ -277,6 +281,7 @@ function renderCustomer(){
       el('div',{class:'stat'},el('b',{id:'customer-balance'},a.balance),el('span',{},'General sessions')),
       el('div',{class:'stat'},el('b',{},Object.values(a.allowances).reduce((x,y)=>x+y,0)),el('span',{},'Starter Pass drives left'),el('small',{},al)),
       el('div',{class:'stat'},el('b',{},a.firstPaidAt?day(a.firstPaidAt):'—'),el('span',{},'First paid'),el('small',{},a.starterBought?'Starter Pass bought':'No Starter Pass')),
+      el('div',{class:'stat'},el('b',{},a.unlimitedUntil?(a.unlimitedUntil.startsWith('9999')?'Lifetime':day(a.unlimitedUntil)):'—'),el('span',{},'Unlimited until')),
       el('div',{class:'stat'},el('b',{},a.invited),el('span',{},'Joined with their link'),el('small',{},a.referrer?`Invited by ${a.referrer.email??a.referrer.code}`:'Not invited'))));
   $('ledger-rows').replaceChildren(...ledger.slice().reverse().map(e=>el('tr',{},el('td',{},when(e.createdAt)),el('td',{},el('span',{class:'tag'},e.type)),
     el('td',{class:'num'},signed(e.sessionsDelta)),el('td',{},e.pot?POT[e.pot]:'Sessions'),el('td',{class:'num'},e.amountPence?money(e.amountPence):''),
@@ -286,6 +291,18 @@ function renderCustomer(){
     ...(drives.length?[]:[el('tr',{},el('td',{colSpan:5,class:'soft'},'No drives yet.'))]));
 }
 $('back').onclick=()=>showTab('customers');
+$('gift').onsubmit=async e=>{
+  e.preventDefault();
+  const period=$('gift-period').value,reason=$('gift-reason').value.trim(),label=$('gift-period').selectedOptions[0].textContent;
+  if(!confirm(period==='end'?`End unlimited drives for ${current.account.email} now?`:`Give ${current.account.email} unlimited drives: ${label}?`))return;
+  const button=e.submitter;button.disabled=true;
+  try{
+    const r=await api(`/api/admin/customers/${encodeURIComponent(current.account.id)}/unlimited`,{period,reason,requestId:crypto.randomUUID()});
+    msg($('gift-msg'),r.result==='ok'?'Recorded.':'Already recorded.','ok');$('gift-reason').value='';
+    await openCustomer(current.account.id);
+  }catch(err){msg($('gift-msg'),err.code==='reason'?'Give a reason (3 to 200 characters).':`Not recorded: ${err.code}`,'bad')}
+  finally{button.disabled=false}
+};
 $('adjust').onsubmit=async e=>{
   e.preventDefault();
   const n=Number($('adjust-n').value),pot=$('adjust-pot').value,reason=$('adjust-reason').value.trim();
