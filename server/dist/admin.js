@@ -8,7 +8,8 @@ export const MAX_ADJUST = 50;
 const allowancesOf = (a) => Object.fromEntries(POTS.map(p => [p, a.allowances?.[p] ?? 0]));
 const summary = (a) => ({ id: a.id, email: a.email, createdAt: a.createdAt.toISOString(), balance: a.balance, allowances: allowancesOf(a),
     firstPaidAt: a.firstPaidAt?.toISOString() ?? null, starterBought: !!a.starterBought, referralCode: a.referralCode, referred: !!a.referredBy,
-    unlimitedUntil: a.unlimitedUntil && a.unlimitedUntil.getTime() > Date.now() ? a.unlimitedUntil.toISOString() : null });
+    unlimitedUntil: a.unlimitedUntil && a.unlimitedUntil.getTime() > Date.now() ? a.unlimitedUntil.toISOString() : null,
+    marketing: a.marketing ? { consent: a.marketing.consent, at: a.marketing.at.toISOString(), source: a.marketing.source } : null });
 const entryOut = (e) => ({ id: e.id, type: e.type, sessionsDelta: e.sessionsDelta, pot: e.pot ?? null, amountPence: e.amountPence, currency: e.currency,
     reason: e.reason, actor: e.actor, by: e.by ?? null, stripe: e.stripe ?? null, accountId: e.accountId, createdAt: e.createdAt.toISOString() });
 /** A spreadsheet cell: quoted, and text that a spreadsheet would run as a formula is made plain. */
@@ -117,6 +118,11 @@ export class Admin {
         }
         const now = (await this.store.findAccount({ id: accountId })).unlimitedUntil;
         return { result: r === 'ok' ? 'ok' : 'duplicate', unlimitedUntil: now && now.getTime() > Date.now() ? now.toISOString() : null };
+    }
+    /** The people who agreed to offers by email: a spreadsheet of email, when they agreed and where. */
+    async marketingCsv() {
+        const people = (await this.store.listAccounts({ marketing: true, limit: 100_000 })).filter(a => a.email && a.marketing?.consent);
+        return ['email,agreed_at,where', ...people.map(a => [a.email, a.marketing.at.toISOString(), a.marketing.source].map(csvCell).join(','))].join('\n') + '\n';
     }
     /** Money in and out between two dates (inclusive, UK calendar days are close enough to UTC for this view). */
     async payments(fromDay, toDay, now = new Date()) {

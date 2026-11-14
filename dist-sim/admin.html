@@ -79,7 +79,7 @@ p:empty{display:none}
 </section>
 
 <section data-panel="customers" hidden>
-<div class="card"><form class="row" id="customer-search"><input type="search" id="customer-q" placeholder="Email, referral code or account id"><button class="primary">Search</button></form></div>
+<div class="card"><form class="row" id="customer-search"><input type="search" id="customer-q" placeholder="Email, referral code or account id"><button class="primary">Search</button><a id="marketing-export" href="/api/admin/marketing">Emails for offers (CSV)</a></form></div>
 <div class="card scroll"><table><thead><tr><th>Email</th><th>Joined</th><th class="num">Sessions</th><th class="num">Starter left</th><th>Paid</th><th>Invited by link</th></tr></thead><tbody id="customer-rows"></tbody></table></div>
 </section>
 
@@ -282,6 +282,7 @@ function renderCustomer(){
       el('div',{class:'stat'},el('b',{},Object.values(a.allowances).reduce((x,y)=>x+y,0)),el('span',{},'Starter Pass drives left'),el('small',{},al)),
       el('div',{class:'stat'},el('b',{},a.firstPaidAt?day(a.firstPaidAt):'—'),el('span',{},'First paid'),el('small',{},a.starterBought?'Starter Pass bought':'No Starter Pass')),
       el('div',{class:'stat'},el('b',{},a.unlimitedUntil?(a.unlimitedUntil.startsWith('9999')?'Lifetime':day(a.unlimitedUntil)):'—'),el('span',{},'Unlimited until')),
+      el('div',{class:'stat'},el('b',{},a.marketing?.consent?'Yes':'No'),el('span',{},'Offers by email'),el('small',{},a.marketing?`${a.marketing.consent?'Agreed':'Said no'} ${day(a.marketing.at)} (${a.marketing.source==='signup'?'sign-up':'account'})`:'Not asked')),
       el('div',{class:'stat'},el('b',{},a.invited),el('span',{},'Joined with their link'),el('small',{},a.referrer?`Invited by ${a.referrer.email??a.referrer.code}`:'Not invited'))));
   $('ledger-rows').replaceChildren(...ledger.slice().reverse().map(e=>el('tr',{},el('td',{},when(e.createdAt)),el('td',{},el('span',{class:'tag'},e.type)),
     el('td',{class:'num'},signed(e.sessionsDelta)),el('td',{},e.pot?POT[e.pot]:'Sessions'),el('td',{class:'num'},e.amountPence?money(e.amountPence):''),
