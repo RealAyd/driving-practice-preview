@@ -5,9 +5,13 @@ export class MemoryPremiumStore {
     states = new Map();
     log = [];
     async link(l) {
-        if (this.links.some(x => x.accountId === l.accountId || x.practicalAccountId === l.practicalAccountId))
+        if (this.links.some(x => x.practicalAccountId === l.practicalAccountId && x.accountId !== l.accountId))
             return 'taken';
-        this.links.push({ ...l });
+        const i = this.links.findIndex(x => x.accountId === l.accountId);
+        if (i >= 0)
+            this.links[i] = { ...l };
+        else
+            this.links.push({ ...l });
         return 'ok';
     }
     async findLink(q) {
@@ -54,14 +58,21 @@ export class MongoPremiumStore {
         await this.events.createIndex({ until: 1 }, { expireAfterSeconds: 0 });
     }
     async link(l) {
-        try {
-            await this.links.insertOne({ _id: l.accountId, accountId: l.accountId, practicalAccountId: l.practicalAccountId, linkedAt: l.linkedAt, consentAt: l.consentAt });
-            return 'ok';
-        }
-        catch (e) {
-            if (e instanceof MongoServerError && e.code === 11000)
+        // (Replaced whole on a relink: the unique index refuses, as 'taken', a Practical account linked to another account.)
+        const doc = { accountId: l.accountId, practicalAccountId: l.practicalAccountId, linkedAt: l.linkedAt, consentAt: l.consentAt };
+        for (let attempt = 0;; attempt++) {
+            try {
+                await this.links.replaceOne({ _id: l.accountId }, doc, { upsert: true });
+                return 'ok';
+            }
+            catch (e) {
+                if (!(e instanceof MongoServerError && e.code === 11000))
+                    throw e;
+                // (Two upserts for this same account at once: the one that lost tries again, as a replace.)
+                if (e.keyPattern?.['_id'] !== undefined && attempt === 0)
+                    continue;
                 return 'taken';
-            throw e;
+            }
         }
     }
     async findLink(q) {
