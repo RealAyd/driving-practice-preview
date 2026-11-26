@@ -1,0 +1,2 @@
+import"./index-CG-8a34i.js";import{i as e,n as t,o as n,r,s as i,t as a}from"./glTFLoader.pure-BRO_Qnwz.js";e(),i();export{a as ArrayItem,n as GLTFFileLoader,t as GLTFLoader,r as LoadBoundingInfoFromPositionAccessor,e as RegisterGLTF2Loader};
+//# sourceMappingURL=glTFLoader-OJrmbL0P.js.map
