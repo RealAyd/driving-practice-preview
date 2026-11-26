@@ -14,6 +14,22 @@ export function loadConfig(env = process.env) {
     if (sessionSecret.length < 32)
         throw new Error('SESSION_SECRET must be at least 32 characters');
     const packsFile = env['PACKS_FILE'] ?? new URL('../packs.json', import.meta.url).pathname;
+    const premiumOn = env['PRACTICAL_PREMIUM'] === '1';
+    // Practical Premium against the live Practical: every credential set (kept in the Hostless app's settings, never in
+    // code). Outside local fakes only on staging: production is refused here until a reviewed change allows it, after
+    // the owner's approval (Release 2 waits on Release 1).
+    // (PRACTICAL_NOTICE_SECRET is optional: change notices are left out for now, the owner's decision; unset, they are refused.)
+    const liveNeeds = ['PRACTICAL_API_BASE', 'PRACTICAL_CLIENT_ID', 'PRACTICAL_PREMIUM_TOKEN'];
+    const liveMissing = liveNeeds.filter(k => !env[k]);
+    const live = premiumOn && liveMissing.length < liveNeeds.length;
+    if (premiumOn && !devFakes) {
+        if (!/^https:\/\/staging\.drivingpractice\.live\/?$/.test(env['APP_BASE_URL'] ?? ''))
+            throw new Error('PRACTICAL_PREMIUM is allowed on staging only until Release 2 is approved');
+        if (liveMissing.length)
+            throw new Error(`PRACTICAL_PREMIUM on staging needs ${liveMissing.join(', ')}`);
+    }
+    if (live && liveMissing.length)
+        throw new Error(`PRACTICAL_PREMIUM with the live Practical needs ${liveMissing.join(', ')}`);
     return {
         port: Number(env['PORT'] ?? 8787),
         appBaseUrl: (env['APP_BASE_URL'] ?? 'http://localhost:4173').replace(/\/$/, ''),
@@ -35,6 +51,10 @@ export function loadConfig(env = process.env) {
         // (Local fakes: each pack gets a placeholder link so a pretend checkout can name it.)
         packs: JSON.parse(readFileSync(packsFile, 'utf8')).packs
             .map(p => devFakes && !p.links.test ? { ...p, links: { ...p.links, test: `https://buy.stripe.com/test_dev_${p.id}` } } : p),
-        devFakes
+        devFakes,
+        practicalPremium: premiumOn ? { premiumFirst: (env['PRACTICAL_PREMIUM_FIRST'] ?? '').split(',').map(s => s.trim()).filter(Boolean),
+            generalAvailability: env['PRACTICAL_CHALLENGES_GA'] === '1', noticeSecret: env['PRACTICAL_NOTICE_SECRET'] || null,
+            live: live ? { base: env['PRACTICAL_API_BASE'], clientId: env['PRACTICAL_CLIENT_ID'], premiumToken: env['PRACTICAL_PREMIUM_TOKEN'],
+                demandToken: env['PRACTICAL_DEMAND_TOKEN'] || null } : null } : null
     };
 }

@@ -61,7 +61,7 @@ p:empty{display:none}
 <button id="theme" type="button">Light / dark</button><button id="signout" type="button" hidden>Sign out</button></header>
 <nav class="tabs" id="tabs" hidden role="tablist">
 <button data-tab="overview" aria-selected="true">Overview</button><button data-tab="visitors">Visitors</button><button data-tab="support">Support <span id="support-count"></span></button><button data-tab="customers">Customers</button>
-<button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button><button data-tab="leaders">Leaders</button>
+<button data-tab="payments">Payments</button><button data-tab="flags">Flags <span id="flag-count"></span></button><button data-tab="referrals">Referrals</button><button data-tab="centres" id="centres-tab" hidden>Test centre requests</button><button data-tab="leaders">Leaders</button>
 </nav>
 <main>
 <section id="signin" class="signin card" hidden>
@@ -151,6 +151,10 @@ p:empty{display:none}
 <div class="card scroll"><p class="small soft"><select id="leaders-week"><option value="last">Last week</option><option value="this">This week (so far)</option></select> <span id="leaders-note"></span></p>
 <table><thead><tr><th>Centre</th><th>Leader</th><th class="num">Points</th><th class="num">Tests · passes</th><th>Prize</th><th></th></tr></thead><tbody id="leader-rows"></tbody></table></div>
 </section>
+<section data-panel="centres" hidden>
+<div class="card scroll"><p class="small soft" id="centres-note"></p><table><thead><tr><th>Test centre</th><th>Area</th><th class="num">Requests</th><th>First</th><th>Latest</th></tr></thead><tbody id="centre-rows"></tbody></table></div>
+</section>
+
 <section data-panel="referrals" hidden>
 <div class="card scroll"><p class="small soft" id="referrals-note"></p><table><thead><tr><th>Referrer</th><th>Code</th><th class="num">Joined</th><th class="num">Paid</th><th class="num">Sessions earned</th></tr></thead><tbody id="referral-rows"></tbody></table></div>
 </section>
@@ -215,7 +219,7 @@ $('code-form').onsubmit=async e=>{
 $('signout').onclick=async()=>{await api('/api/auth/logout',{}).catch(()=>{});location.reload()};
 
 // ---- Tabs ----
-const loaders={overview:()=>api('/api/admin/overview'),visitors:()=>api(`/api/admin/visits?days=${$('visits-days').value}`),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals'),leaders:()=>api(`/api/admin/leaders${$('leaders-week').value==='this'?`?week=${new Date().toISOString()}`:''}`)};
+const loaders={centres:()=>api('/api/admin/centre-demand').catch(e=>{if(e.status===401)throw e;return {centres:null}}),overview:()=>api('/api/admin/overview'),visitors:()=>api(`/api/admin/visits?days=${$('visits-days').value}`),support:()=>loadSupport(),customers:()=>searchCustomers(),payments:()=>loadPayments(),flags:()=>loadFlags(),referrals:()=>api('/api/admin/referrals'),leaders:()=>api(`/api/admin/leaders${$('leaders-week').value==='this'?`?week=${new Date().toISOString()}`:''}`)};
 $('tabs').onclick=e=>{const b=e.target.closest('button[data-tab]');if(b)showTab(b.dataset.tab)};
 async function showTab(tab){
   for(const b of $('tabs').querySelectorAll('button'))b.setAttribute('aria-selected',String(b.dataset.tab===tab||(tab==='customer'&&b.dataset.tab==='customers')||(tab==='ticket'&&b.dataset.tab==='support')));
@@ -225,6 +229,7 @@ function show(tab,data){
   panels.forEach(p=>p.hidden=p.dataset.panel!==tab);
   if(tab==='overview')renderOverview(data);
   if(tab==='referrals')renderReferrals(data);
+  if(tab==='centres')renderCentres(data);
   if(tab==='leaders')renderLeaders(data);
   if(tab==='visitors')renderVisits(data);
 }
@@ -248,10 +253,15 @@ function renderOverview(o){
     s(o.support.awaitingAdmin,'Support: waiting for you',`${o.support.open} open requests`),
     s(o.support.overdue,'Support: overdue',o.support.failedNotifications?`${o.support.failedNotifications} emails or alerts not sent`:'Not answered or acknowledged in 5 minutes'),
     s(o.flags.open,'Open flags','Waiting for a person to look'),
-    s(o.webhooks.received,`Stripe webhooks (${o.webhooks.mode})`,`Since the server started${o.webhooks.lastReceivedAt?`; last ${when(o.webhooks.lastReceivedAt)}`:''}${o.webhooks.refused?` · ${o.webhooks.refused} refused: wrong signing secret?`:''}`)
+    s(o.webhooks.received,`Stripe webhooks (${o.webhooks.mode})`,`Since the server started${o.webhooks.lastReceivedAt?`; last ${when(o.webhooks.lastReceivedAt)}`:''}${o.webhooks.refused?` · ${o.webhooks.refused} refused: wrong signing secret?`:''}`),
+    // Practical Premium (Release 2): only where it is on.
+    ...(o.practicalPremium?[
+      s(o.practicalPremium.drives.started,`Practical Premium drives in ${o.practicalPremium.days} days`,`${o.practicalPremium.drives.completed} completed · ${o.practicalPremium.linked} account${o.practicalPremium.linked===1?'':'s'} linked to Practical`),
+      s(o.practicalPremium.checks.error,'Premium checks not confirmed',`${o.practicalPremium.days} days · ${o.practicalPremium.checks.confirmed} confirmed · ${o.practicalPremium.checks.inactive} no Premium`)]:[])
   );
   $('stats-note').textContent=`Money in ${o.currency.toUpperCase()}, from the ledger (Stripe events as received). Accounts are sign-ups to the simulator; "paying" excludes 100% promotion codes. Updated ${when(o.at)}.`;
   setFlagCount(o.flags.open);setSupportCount(o.support.awaitingAdmin,o.support.overdue);
+  $('centres-tab').hidden=!o.practicalPremium;
 }
 function setSupportCount(waiting,overdue){$('support-count').textContent=waiting?`(${waiting}${overdue?`, ${overdue} late`:''})`:''}
 function setFlagCount(n){$('flag-count').textContent=n?`(${n})`:''}
@@ -389,6 +399,14 @@ function renderVisits(v){
   rows('visit-devices',v.devices,[x=>td(x.device),x=>td(x.sessions,1)]);
   rows('visit-campaigns',[...v.campaigns.map(c=>({k:c.campaign,n:c.sessions})),...v.countries.map(c=>({k:c.country,n:c.sessions}))],[x=>td(x.k),x=>td(x.n,1)]);
   $('visits-note').textContent=`From the app's own visit records (no third party; not kept for devices that ask not to be tracked). A visit is one opening of the app; "stay" is from opening to the last thing seen while on screen. Updated ${when(v.at)}.`;
+}
+// ---- Test centre requests (Practical Premium, Release 2): sanitised totals from Practical, nobody who asked ----
+function renderCentres(d){
+  const rows=d.centres;
+  const date=s=>new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+  $('centres-note').textContent=rows===null?'Practical could not be reached.':`${rows.length} centres. Centres with fewer than 3 requests are not shown.`;
+  $('centre-rows').replaceChildren(...(rows??[]).map(c=>el('tr',{},el('td',{},c.centre),el('td',{},c.area),el('td',{class:'num'},c.requests),el('td',{},date(c.firstAt)),el('td',{},date(c.lastAt)))),
+    ...(rows&&!rows.length?[el('tr',{},el('td',{colSpan:5,class:'soft'},'No requests yet.'))]:[]));
 }
 function renderReferrals(r){
   $('referrals-note').textContent=`${r.referrers.length} people have brought in sign-ups. A friend gets 2 free drives on joining; the person who invited them gets 2 once the friend completes a drive (up to 10 in 30 days). ${r.refused} invites were not counted (own link or an existing person).`;
