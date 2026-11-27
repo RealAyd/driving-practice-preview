@@ -21,6 +21,8 @@ export class MongoStore {
         this.db = db;
         this.support = new MongoSupportStore(db);
     }
+    /** The database itself, for stores kept beside this one (Practical Premium's, premiumStore.ts). */
+    get database() { return this.db; }
     static async connect(uri) {
         const client = new MongoClient(uri);
         try {
@@ -245,6 +247,11 @@ export class MongoStore {
         await this.visits.insertMany(events.map(e => ({ ...e }))); }
     async visitEvents(since, limit) {
         return (await this.visits.find({ at: { $gte: since } }, { projection: { _id: 0 } }).sort({ at: 1 }).limit(limit).toArray());
+    }
+    async premiumDrives(since) {
+        const q = { paidFrom: 'premium', startedAt: { $gte: since } };
+        const [started, completed] = await Promise.all([this.drives.countDocuments(q), this.drives.countDocuments({ ...q, status: 'completed' })]);
+        return { started, completed };
     }
     async driveCounts(since) {
         const rows = await this.drives.aggregate([{ $match: { startedAt: { $gte: since }, status: { $ne: 'unpaid' } } },

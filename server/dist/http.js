@@ -1,3 +1,4 @@
+import { MOCK_KINDS, MockPracticalApi } from './practical.js';
 import { cleanResult } from './profile.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Admin } from './admin.js';
@@ -99,7 +100,7 @@ export function handler(service, outbox) {
             if (path === '/healthz')
                 return send(res, 200, { ok: true });
             // Posts from other sites are refused (Stripe's webhook and Apple's return post are checked their own way).
-            const crossSite = method === 'POST' && req.headers.origin && req.headers.origin !== origin && path !== '/api/stripe/webhook' && path !== '/api/auth/apple/callback';
+            const crossSite = method === 'POST' && req.headers.origin && req.headers.origin !== origin && path !== '/api/stripe/webhook' && path !== '/api/auth/apple/callback' && path !== '/api/practical/notice';
             if (crossSite)
                 throw new HttpError(403, 'cross-site');
             const session = readSessionInfo(config.sessionSecret, cookies(req)[COOKIE]);
@@ -118,7 +119,9 @@ export function handler(service, outbox) {
             if (method === 'GET' && path === '/api/config')
                 return send(res, 200, {
                     gate: true, googleClientId: config.googleClientId, appleServicesId: config.appleServicesId, packs: service.packs(), devCheckout: config.devFakes, signInFirst: config.signInFirst,
-                    appleRedirect: `${config.appBaseUrl}/api/auth/apple/callback`
+                    appleRedirect: `${config.appBaseUrl}/api/auth/apple/callback`,
+                    // (Practical Premium, only when on: the scenarios open first to it.)
+                    ...(service.premium ? { practicalPremium: { premiumFirst: service.premium.premiumFirstList } } : {})
                 });
             // The learner's profile: their drives, best mock test, weak areas and progress.
             if (method === 'GET' && path === '/api/profile')
@@ -211,9 +214,15 @@ export function handler(service, outbox) {
                 if (!accountId && config.signInFirst)
                     return send(res, 401, { error: 'sign-in' });
                 if (accountId) {
-                    const r = await service.startDrive(accountId, kind, scenario);
+                    const r = await service.startDrive(accountId, kind, scenario, { useSession: b['useSession'] === true });
                     if (r.ok)
-                        return send(res, 200, { driveId: r.drive.id, balance: r.balance });
+                        return send(res, 200, { driveId: r.drive.id, balance: r.balance, ...(r.drive.paidFrom === 'premium' ? { premium: true } : {}) });
+                    // (Practical Premium: not confirmed (the app asks before using a session, sent again with useSession), or a
+                    // challenge open first to verified Premium. Never the free try instead.)
+                    if (r.reason === 'premium-unconfirmed')
+                        return send(res, 409, { error: r.reason });
+                    if (r.reason === 'premium-first')
+                        return send(res, 403, { error: r.reason });
                 }
                 const t = await service.startTrialDrive(trialId, ipOf(req), kind, scenario, accountId ?? undefined);
                 if (t.trialId && t.trialId !== trialId)
@@ -221,6 +230,48 @@ export function handler(service, outbox) {
                 if (t.start.ok)
                     return send(res, 200, { driveId: t.start.drive.id, balance: 0, trial: true });
                 return send(res, t.start.reason === 'slow-down' ? 429 : 402, { error: accountId && t.start.reason === 'trial-used' ? 'no-sessions' : t.start.reason });
+            }
+            // Practical Premium (Release 2): only when it is on; otherwise these addresses do not exist.
+            if (service.premium && path.startsWith('/api/practical/')) {
+                const premium = service.premium;
+                if (method === 'POST' && path === '/api/practical/link')
+                    return send(res, 200, await premium.startLink(signedIn(), `${config.appBaseUrl}/?practical=done`));
+                // Local fakes only: the mock Practical's consent page (the live one is Practical's own, at its address).
+                if (method === 'GET' && path === '/api/practical/mock/authorize' && config.devFakes && premium.api instanceof MockPracticalApi) {
+                    const mock = premium.api, state = url.searchParams.get('state') ?? '', redirect = url.searchParams.get('redirect_uri') ?? '/';
+                    const back = new URL(redirect, config.appBaseUrl);
+                    if (back.origin !== new URL(config.appBaseUrl).origin)
+                        return send(res, 400, { error: 'redirect' });
+                    const kind = url.searchParams.get('kind');
+                    if (kind && MOCK_KINDS.includes(kind)) {
+                        back.searchParams.set('state', state);
+                        back.searchParams.set('code', mock.consent(kind));
+                        res.writeHead(302, { Location: back.pathname + back.search });
+                        return res.end();
+                    }
+                    const esc = (s) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+                    const links = MOCK_KINDS.map(k => `<li><a href="?${esc(new URLSearchParams({ state, redirect_uri: redirect, kind: k }).toString())}">${esc(k)}</a></li>`).join('');
+                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+                    return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Mock Practical</title><h1>Mock Practical: allow the simulator?</h1><p>Local development only. Sign in as:</p><ul>${links}</ul>`);
+                }
+                if (method === 'POST' && path === '/api/practical/link/finish') {
+                    const b = await json(req), state = str(b['state'], 200), code = str(b['code'], 500);
+                    if (!state || !code)
+                        return send(res, 400, { error: 'state' });
+                    const r = await premium.finishLink(signedIn(), state, code);
+                    return r.ok ? send(res, 200, { linked: true }) : send(res, r.reason === 'taken' ? 409 : 400, { error: r.reason });
+                }
+                if (method === 'POST' && path === '/api/practical/unlink')
+                    return send(res, 200, { unlinked: await premium.unlink(signedIn()) });
+                if (method === 'GET' && path === '/api/practical/status')
+                    return send(res, 200, await premium.status(signedIn()));
+                // From Practical's server, signed (practical.ts verifyNotice): a fresh check, nothing granted by it.
+                if (method === 'POST' && path === '/api/practical/notice') {
+                    const raw = (await body(req, 16_384)).toString('utf8');
+                    const one = (h) => typeof h === 'string' ? h : undefined;
+                    const r = await premium.notice(raw, one(req.headers['x-dp-timestamp']), one(req.headers['x-dp-signature']));
+                    return send(res, r === 'refused' ? 401 : 200, { ok: r !== 'refused' });
+                }
             }
             const drive = /^\/api\/drives\/([\w-]{8,64})\/(loaded|failed|completed|ended)$/.exec(path);
             if (method === 'POST' && drive) {
@@ -288,8 +339,14 @@ export function handler(service, outbox) {
                 if (method === 'POST' && req.headers.origin !== origin)
                     throw new HttpError(403, 'cross-site');
                 res.setHeader('X-Robots-Tag', 'noindex');
+                // Practical's new test-centre requests, sanitised (Release 2, only when Premium is on).
+                if (method === 'GET' && path === '/api/admin/centre-demand' && service.premium) {
+                    const rows = await service.premium.centreDemand();
+                    return rows ? send(res, 200, { centres: rows }) : send(res, 503, { error: 'practical-unavailable' });
+                }
                 if (method === 'GET' && path === '/api/admin/overview')
                     return send(res, 200, { ...await admin.overview(), support: await support.counts(),
+                        ...(service.premium ? { practicalPremium: await service.premium.report(since => service.store.premiumDrives(since)) } : {}),
                         webhooks: { ...service.webhookStats, mode: config.stripeMode } });
                 // Support: the queue, a request, and what an admin can do with it.
                 if (method === 'GET' && path === '/api/admin/visits') {

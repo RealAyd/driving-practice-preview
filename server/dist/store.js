@@ -166,6 +166,10 @@ export class MemoryStore {
                 addDrive(n, d, 1);
         return n;
     }
+    async premiumDrives(since) {
+        const all = [...this.drives.values()].filter(d => d.paidFrom === 'premium' && d.startedAt >= since);
+        return { started: all.length, completed: all.filter(d => d.status === 'completed').length };
+    }
 }
 export const countDrives = () => ({ lesson: 0, test: 0, free: 0, failed: 0, total: 0, completed: { lesson: 0, test: 0, free: 0 }, ended: {} });
 export function addDrive(n, d, count) {

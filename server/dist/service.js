@@ -74,6 +74,8 @@ export class Service {
     stripe;
     /** Support requests (tickets, the response timer, the notification outbox). */
     support;
+    /** Practical Premium (Release 2): set only when PRACTICAL_PREMIUM is on (index.ts); null, every drive is as before. */
+    premium = null;
     constructor(config, store, mail, ids, stripe, pusher = null) {
         this.config = config;
         this.store = store;
@@ -211,7 +213,7 @@ export class Service {
      * A drive starts with a session to use (general sessions, or any Starter Pass drive left on an older account);
      * nothing is taken until it is completed (completeDrive).
      */
-    async startDrive(accountId, kind, scenario) {
+    async startDrive(accountId, kind, scenario, opts = {}) {
         if (!SCENARIO.test(scenario))
             return { ok: false, reason: 'no-sessions' };
         const mode = modeOf(scenario);
@@ -220,6 +222,21 @@ export class Service {
             return { ok: false, reason: 'no-sessions' };
         // The admins (ADMIN_EMAILS) drive without using sessions: recorded as a drive, nothing taken.
         const admin = isAdminEmail(this.config, account.email);
+        // Practical Premium, asked afresh now (never a stored answer): confirmed, the drive uses nothing, whatever else
+        // the account holds; a scenario open first to Premium needs it confirmed. Not confirmed because Practical could not
+        // be asked: the learner is asked before a session or pass is used instead.
+        const premium = this.premium && !admin ? await this.premium.check(accountId, 'launch') : null;
+        if (premium?.state === 'confirmed') {
+            const drive = await this.store.createDrive({ accountId, owner: accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'premium',
+                entitlementCheck: premium.checkId, startedAt: new Date(), status: 'started' });
+            return { ok: true, drive, balance: account.balance };
+        }
+        if (this.premium && !admin && this.premium.premiumFirst(scenario))
+            return { ok: false, reason: 'premium-first' };
+        // (A pass uses nothing either: it goes on as today, nothing to ask.)
+        const pass = !!account.unlimitedUntil && account.unlimitedUntil.getTime() > Date.now();
+        if (premium?.state === 'unconfirmed' && !pass && !opts.useSession)
+            return { ok: false, reason: 'premium-unconfirmed' };
         // An unlimited pass: every drive, nothing used.
         if (!admin && account.unlimitedUntil && account.unlimitedUntil.getTime() > Date.now()) {
             const drive = await this.store.createDrive({ accountId, owner: accountId, kind: kind.slice(0, 40), scenario, mode, paidFrom: 'pass', startedAt: new Date(), status: 'started' });
@@ -325,7 +342,7 @@ export class Service {
         if (status === 'completed' && d.status !== 'completed')
             await this.completeDrive(d);
         // (A drive paid at its start, before sessions were used on completion: one that fails to load gives it back.)
-        if (status === 'failed' && !d.due && d.status === 'started' && d.paidFrom !== 'admin' && d.paidFrom !== 'pass' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
+        if (status === 'failed' && !d.due && d.status === 'started' && d.paidFrom !== 'admin' && d.paidFrom !== 'pass' && d.paidFrom !== 'premium' && !d.refunded && Date.now() - d.startedAt.getTime() <= REFUND_WINDOW_MS) {
             // A free try's drive goes back to the try (once).
             if (d.paidFrom === 'trial') {
                 await this.store.updateDrive(driveId, { status, refunded: true });
